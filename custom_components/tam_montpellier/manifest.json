@@ -1,10 +1,16 @@
 {
   "domain": "tam_montpellier",
   "name": "TaM Montpellier",
+  "after_dependencies": [
+    "frontend"
+  ],
   "codeowners": [
     "@3615nulsi"
   ],
   "config_flow": true,
+  "dependencies": [
+    "http"
+  ],
   "documentation": "https://github.com/3615nulsi/ha-tam-montpellier",
   "integration_type": "service",
   "iot_class": "cloud_polling",
@@ -13,5 +19,5 @@
     "gtfs-realtime-bindings==2.2.0"
   ],
   "single_config_entry": true,
-  "version": "0.2.2"
+  "version": "0.3.0"
 }

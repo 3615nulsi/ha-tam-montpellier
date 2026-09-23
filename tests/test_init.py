@@ -423,3 +423,22 @@ async def test_alert_message_truncated(
     assert state.state.endswith("…")
     assert state.attributes["alert_count"] == 2
     assert state.attributes["full_message"] == f"{long_text.strip()} • Quai déplacé."
+
+
+async def test_card_is_served(
+    hass: HomeAssistant,
+    mock_feeds: AiohttpClientMocker,
+    hass_client,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """The departure board card is served by the integration."""
+    freezer.move_to(paris(8, 12))
+    entry = _entry()
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    client = await hass_client()
+    response = await client.get("/tam_montpellier/tam-board-card.js")
+    assert response.status == 200
+    assert 'customElements.define("tam-board-card"' in await response.text()
