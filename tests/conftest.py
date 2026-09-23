@@ -157,3 +157,33 @@ def isolated_storage(hass: HomeAssistant, tmp_path: Path) -> Generator[None]:
     storage.mkdir()
     with patch.object(hass.config, "config_dir", str(storage)):
         yield
+
+
+def build_alerts(*alerts: dict) -> bytes:
+    """Build a GTFS-RT Alert feed.
+
+    Each alert is a dict with ``id``, ``informed`` (a list of dicts with
+    ``agency_id``, ``route_id``, ``direction_id`` or ``stop_id``), optional
+    ``periods`` (``(start, end)`` datetimes), ``header`` and ``description``.
+    """
+    feed = gtfs_realtime_pb2.FeedMessage()
+    feed.header.gtfs_realtime_version = "2.0"
+    for alert in alerts:
+        entity = feed.entity.add()
+        entity.id = alert["id"]
+        for informed in alert.get("informed", ()):
+            selector = entity.alert.informed_entity.add()
+            for field, value in informed.items():
+                setattr(selector, field, value)
+        for start, end in alert.get("periods", ()):
+            period = entity.alert.active_period.add()
+            if start is not None:
+                period.start = int(start.timestamp())
+            if end is not None:
+                period.end = int(end.timestamp())
+        for field in ("header", "description"):
+            if field in alert:
+                getattr(entity.alert, f"{field}_text").translation.add(
+                    text=alert[field], language="fr"
+                )
+    return feed.SerializeToString()

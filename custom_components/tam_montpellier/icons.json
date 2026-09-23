@@ -1,5 +1,13 @@
 {
   "entity": {
+    "binary_sensor": {
+      "disruption": {
+        "default": "mdi:check-circle-outline",
+        "state": {
+          "on": "mdi:alert"
+        }
+      }
+    },
     "sensor": {
       "next_departure": {
         "default": "mdi:tram"

@@ -9,6 +9,7 @@ DOMAIN: Final = "tam_montpellier"
 
 CONF_GTFS_URL: Final = "gtfs_url"
 CONF_TRIP_UPDATES_URL: Final = "trip_updates_url"
+CONF_ALERTS_URL: Final = "alerts_url"
 
 CONF_ROUTE_ID: Final = "route_id"
 CONF_DIRECTION_ID: Final = "direction_id"
@@ -18,6 +19,7 @@ SUBENTRY_TYPE_STOP: Final = "stop"
 
 DEFAULT_GTFS_URL: Final = "https://gtfsproxy.e-tam.fr/COMMON/GTFS.zip"
 DEFAULT_TRIP_UPDATES_URL: Final = "https://gtfsproxy.e-tam.fr/COMMON/TripUpdate.pb"
+DEFAULT_ALERTS_URL: Final = "https://gtfsproxy.e-tam.fr/COMMON/Alert.pb"
 
 # GTFS route_type 0 = tram / light rail.
 TRAM_ROUTE_TYPE: Final = "0"

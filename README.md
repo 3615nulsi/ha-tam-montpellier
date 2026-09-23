@@ -42,6 +42,8 @@ au plus proche et ne se rafraîchit qu'une fois par minute. Il peut surestimer
 le temps restant jusqu'à 1 min 30 : préférez le capteur minutes pour décider
 quand partir.
 
+| `binary_sensor.…_perturbation` | Allumé quand une alerte trafic TaM en cours concerne la ligne, l'arrêt ou tout le réseau |
+
 Attributs : `line`, `line_color`, `destination`, `delay` (minutes) et `source`.
 Le capteur minutes porte aussi `departures`, les 6 prochains passages avec
 leurs minutes restantes, calculées selon le même arrondi.
@@ -55,6 +57,11 @@ leurs minutes restantes, calculées selon le même arrondi.
 
 Si le flux temps réel est indisponible, les capteurs basculent sur les horaires
 théoriques plutôt que de devenir indisponibles.
+
+Le capteur **Perturbation** expose `message` (le texte de la première alerte) et
+`alerts`, la liste des alertes en cours avec leur message, leur fin prévue et
+leur code interne TaM (`title`). Si le flux d'alertes est momentanément
+injoignable, les dernières alertes connues sont conservées.
 
 ## Exemples
 
@@ -71,6 +78,20 @@ content: >
     {%- if d.source == 'scheduled' %} _(théorique)_{% endif %}
     {%- if d.delay %} · retard {{ d.delay }} min{% endif %}
   {% endfor %}
+```
+
+### Bandeau de perturbation (affiché seulement en cas d'alerte)
+
+```yaml
+type: conditional
+conditions:
+  - condition: state
+    entity: binary_sensor.comedie_mosson_tram_1_perturbation
+    state: "on"
+card:
+  type: markdown
+  content: >
+    ⚠️ {{ state_attr('binary_sensor.comedie_mosson_tram_1_perturbation', 'message') }}
 ```
 
 ### « Il est temps de partir »
@@ -93,7 +114,7 @@ actions:
 
 ## Fonctionnement
 
-- Le flux temps réel (GTFS-RT `TripUpdate`) est interrogé toutes les 30 secondes.
+- Les flux temps réel (GTFS-RT `TripUpdate` et `Alert`) sont interrogés toutes les 30 secondes.
 - Les horaires théoriques (GTFS, environ 5 Mo) sont téléchargés au démarrage puis
   chaque nuit à 3 h 30, et mis en cache dans `.storage/tam_montpellier/`. Seul le
   tram est conservé en mémoire.

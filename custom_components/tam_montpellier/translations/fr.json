@@ -6,7 +6,8 @@
         "description": "Horaires en temps réel du tramway de Montpellier (open data TaM, licence ODbL). Les adresses par défaut conviennent ; elles ne sont à modifier que si l'opérateur les change.\n\nUne fois l'intégration ajoutée, utilisez « Ajouter un arrêt » pour choisir les arrêts à suivre.",
         "data": {
           "trip_updates_url": "Flux temps réel (GTFS-RT TripUpdate)",
-          "gtfs_url": "Horaires théoriques (GTFS)"
+          "gtfs_url": "Horaires théoriques (GTFS)",
+          "alerts_url": "Alertes trafic (GTFS-RT Alert)"
         }
       }
     },
@@ -53,6 +54,22 @@
     }
   },
   "entity": {
+    "binary_sensor": {
+      "disruption": {
+        "name": "Perturbation",
+        "state_attributes": {
+          "line": {
+            "name": "Ligne"
+          },
+          "message": {
+            "name": "Message"
+          },
+          "alerts": {
+            "name": "Alertes"
+          }
+        }
+      }
+    },
     "sensor": {
       "next_departure": {
         "name": "Prochain passage",

@@ -28,17 +28,19 @@ from homeassistant.helpers.selector import (
 )
 
 from .const import (
+    CONF_ALERTS_URL,
     CONF_DIRECTION_ID,
     CONF_GTFS_URL,
     CONF_ROUTE_ID,
     CONF_STOP_ID,
     CONF_TRIP_UPDATES_URL,
+    DEFAULT_ALERTS_URL,
     DEFAULT_GTFS_URL,
     DEFAULT_TRIP_UPDATES_URL,
     DOMAIN,
     SUBENTRY_TYPE_STOP,
 )
-from .coordinator import TamConfigEntry, async_fetch_trip_updates
+from .coordinator import TamConfigEntry, async_fetch_feed
 from .departures import parse_trip_updates
 from .gtfs_static import StaticData
 
@@ -65,7 +67,7 @@ class TamConfigFlow(ConfigFlow, domain=DOMAIN):
         errors: dict[str, str] = {}
         if user_input is not None:
             try:
-                payload = await async_fetch_trip_updates(
+                payload = await async_fetch_feed(
                     self.hass, user_input[CONF_TRIP_UPDATES_URL]
                 )
                 await self.hass.async_add_executor_job(parse_trip_updates, payload)
@@ -83,12 +85,14 @@ class TamConfigFlow(ConfigFlow, domain=DOMAIN):
                     {
                         vol.Required(CONF_TRIP_UPDATES_URL): _URL_SELECTOR,
                         vol.Required(CONF_GTFS_URL): _URL_SELECTOR,
+                        vol.Required(CONF_ALERTS_URL): _URL_SELECTOR,
                     }
                 ),
                 user_input
                 or {
                     CONF_TRIP_UPDATES_URL: DEFAULT_TRIP_UPDATES_URL,
                     CONF_GTFS_URL: DEFAULT_GTFS_URL,
+                    CONF_ALERTS_URL: DEFAULT_ALERTS_URL,
                 },
             ),
             errors=errors,

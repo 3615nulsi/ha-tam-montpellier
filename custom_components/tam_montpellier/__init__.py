@@ -16,7 +16,7 @@ from .coordinator import GtfsDownloadError, TamConfigEntry, TamCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 
-PLATFORMS: list[Platform] = [Platform.SENSOR]
+PLATFORMS: list[Platform] = [Platform.BINARY_SENSOR, Platform.SENSOR]
 
 # Errors raised while loading an unusable GTFS archive.
 _GTFS_ERRORS = (GtfsDownloadError, zipfile.BadZipFile, KeyError, ValueError)

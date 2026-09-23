@@ -16,11 +16,13 @@ from pytest_homeassistant_custom_component.test_util.aiohttp import (
 )
 
 from custom_components.tam_montpellier.const import (
+    CONF_ALERTS_URL,
     CONF_DIRECTION_ID,
     CONF_GTFS_URL,
     CONF_ROUTE_ID,
     CONF_STOP_ID,
     CONF_TRIP_UPDATES_URL,
+    DEFAULT_ALERTS_URL,
     DEFAULT_GTFS_URL,
     DEFAULT_TRIP_UPDATES_URL,
     DOMAIN,
@@ -31,23 +33,26 @@ from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
 from homeassistant.helpers import entity_registry as er
 
-from .conftest import build_gtfs, build_trip_updates, paris, trip_id
+from .conftest import build_alerts, build_gtfs, build_trip_updates, paris, trip_id
 
 pytestmark = pytest.mark.usefixtures("enable_custom_integrations", "isolated_storage")
 
 ENTRY_DATA = {
     CONF_TRIP_UPDATES_URL: DEFAULT_TRIP_UPDATES_URL,
     CONF_GTFS_URL: DEFAULT_GTFS_URL,
+    CONF_ALERTS_URL: DEFAULT_ALERTS_URL,
 }
 STOP_DATA = {CONF_ROUTE_ID: "1", CONF_DIRECTION_ID: 0, CONF_STOP_ID: "B"}
 NEXT_SENSOR = "sensor.bravo_delta_tram_1_next_departure"
 MINUTES_SENSOR = "sensor.bravo_delta_tram_1_minutes_to_next_departure"
+DISRUPTION_SENSOR = "binary_sensor.bravo_delta_tram_1_disruption"
 
 
 @pytest.fixture(name="mock_feeds")
 def mock_feeds_fixture(aioclient_mock: AiohttpClientMocker) -> AiohttpClientMocker:
     """Serve the synthetic feeds."""
     aioclient_mock.get(DEFAULT_GTFS_URL, content=build_gtfs())
+    aioclient_mock.get(DEFAULT_ALERTS_URL, content=build_alerts())
     aioclient_mock.get(
         DEFAULT_TRIP_UPDATES_URL,
         content=build_trip_updates(
@@ -216,6 +221,7 @@ async def test_realtime_outage_falls_back_to_schedule(
     """Scheduled times are used when the real-time feed is down."""
     freezer.move_to(paris(8, 12))
     aioclient_mock.get(DEFAULT_GTFS_URL, content=build_gtfs())
+    aioclient_mock.get(DEFAULT_ALERTS_URL, exc=ClientError())
     aioclient_mock.get(DEFAULT_TRIP_UPDATES_URL, exc=ClientError())
     entry = _entry()
     entry.add_to_hass(hass)
@@ -321,3 +327,61 @@ async def test_gtfs_cache_reused(
     await hass.async_block_till_done(wait_background_tasks=True)
     assert _gtfs_downloads(mock_feeds) == 2
     assert entry.state is ConfigEntryState.LOADED
+
+
+async def test_disruption_sensor(
+    hass: HomeAssistant,
+    aioclient_mock: AiohttpClientMocker,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """The disruption sensor reports alerts on the line of the stop."""
+    freezer.move_to(paris(8, 12))
+    aioclient_mock.get(DEFAULT_GTFS_URL, content=build_gtfs())
+    aioclient_mock.get(DEFAULT_TRIP_UPDATES_URL, content=build_trip_updates())
+    aioclient_mock.get(
+        DEFAULT_ALERTS_URL,
+        content=build_alerts(
+            {
+                "id": "works",
+                "informed": [{"route_id": "1"}],
+                "periods": [(paris(8, 0), paris(20, 0))],
+                "header": "TR/L1/CODE",
+                "description": "TRAVAUX : arrêt Bravo non desservi.",
+            },
+            {"id": "bus", "informed": [{"route_id": "13"}], "description": "Bus"},
+        ),
+    )
+    entry = _entry()
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    state = hass.states.get(DISRUPTION_SENSOR)
+    assert state.state == "on"
+    assert state.attributes["message"] == "TRAVAUX : arrêt Bravo non desservi."
+    assert state.attributes["alerts"] == [
+        {
+            "message": "TRAVAUX : arrêt Bravo non desservi.",
+            "title": "TR/L1/CODE",
+            "end": "2026-09-23T18:00:00+00:00",
+            "url": None,
+        }
+    ]
+
+    # The alert ends: the sensor turns off at the next update.
+    freezer.move_to(paris(20, 1))
+    await entry.runtime_data.async_refresh()
+    await hass.async_block_till_done()
+    state = hass.states.get(DISRUPTION_SENSOR)
+    assert state.state == "off"
+    assert state.attributes["alerts"] == []
+
+    # A failing alert feed keeps the last known alerts.
+    aioclient_mock.clear_requests()
+    aioclient_mock.get(DEFAULT_GTFS_URL, content=build_gtfs())
+    aioclient_mock.get(DEFAULT_TRIP_UPDATES_URL, content=build_trip_updates())
+    aioclient_mock.get(DEFAULT_ALERTS_URL, exc=ClientError())
+    freezer.move_to(paris(8, 30, day=24))
+    await entry.runtime_data.async_refresh()
+    await hass.async_block_till_done()
+    assert entry.runtime_data.alerts[0].alert_id == "works"

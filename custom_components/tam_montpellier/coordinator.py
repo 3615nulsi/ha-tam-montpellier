@@ -16,12 +16,15 @@ from homeassistant.helpers.storage import STORAGE_DIR
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from homeassistant.util import dt as dt_util
 
+from .alerts import Alert, parse_alerts
 from .const import (
+    CONF_ALERTS_URL,
     CONF_DIRECTION_ID,
     CONF_GTFS_URL,
     CONF_ROUTE_ID,
     CONF_STOP_ID,
     CONF_TRIP_UPDATES_URL,
+    DEFAULT_ALERTS_URL,
     DOMAIN,
     GTFS_DOWNLOAD_TIMEOUT,
     GTFS_MAX_AGE,
@@ -52,8 +55,8 @@ def stop_key_from_data(data: dict) -> StopKey:
     return (data[CONF_STOP_ID], data[CONF_ROUTE_ID], int(data[CONF_DIRECTION_ID]))
 
 
-async def async_fetch_trip_updates(hass: HomeAssistant, url: str) -> bytes:
-    """Download the GTFS-RT TripUpdate feed."""
+async def async_fetch_feed(hass: HomeAssistant, url: str) -> bytes:
+    """Download a GTFS-RT feed."""
     session = async_get_clientsession(hass)
     async with session.get(url, timeout=ClientTimeout(total=REQUEST_TIMEOUT)) as resp:
         resp.raise_for_status()
@@ -77,6 +80,9 @@ class TamCoordinator(DataUpdateCoordinator[dict[StopKey, list[Departure]]]):
         )
         self._gtfs_path = Path(hass.config.path(STORAGE_DIR, DOMAIN, "gtfs.zip"))
         self._realtime_available = True
+        self._alerts_available = True
+        self.alerts: list[Alert] = []
+        """Last known service alerts, kept when the alert feed fails."""
         self.stop_keys: set[StopKey] = {
             stop_key_from_data(subentry.data)
             for subentry in entry.subentries.values()
@@ -121,9 +127,10 @@ class TamCoordinator(DataUpdateCoordinator[dict[StopKey, list[Departure]]]):
         When the real-time feed is unavailable, departures fall back to the
         scheduled times instead of making the entities unavailable.
         """
+        await self._async_update_alerts()
         snapshot = RealtimeSnapshot()
         try:
-            payload = await async_fetch_trip_updates(
+            payload = await async_fetch_feed(
                 self.hass, self.config_entry.data[CONF_TRIP_UPDATES_URL]
             )
             snapshot = await self.hass.async_add_executor_job(
@@ -136,6 +143,21 @@ class TamCoordinator(DataUpdateCoordinator[dict[StopKey, list[Departure]]]):
         return await self.hass.async_add_executor_job(
             self._compute_departures, snapshot, dt_util.now()
         )
+
+    async def _async_update_alerts(self) -> None:
+        """Refresh the service alerts, keeping the last ones on failure."""
+        url = self.config_entry.data.get(CONF_ALERTS_URL, DEFAULT_ALERTS_URL)
+        try:
+            payload = await async_fetch_feed(self.hass, url)
+            self.alerts = await self.hass.async_add_executor_job(parse_alerts, payload)
+        except (ClientError, TimeoutError, DecodeError) as err:
+            if self._alerts_available:
+                _LOGGER.warning("TaM alert feed unavailable: %s", err)
+                self._alerts_available = False
+            return
+        if not self._alerts_available:
+            _LOGGER.info("TaM alert feed is available again")
+            self._alerts_available = True
 
     def _compute_departures(
         self, snapshot: RealtimeSnapshot, now: datetime

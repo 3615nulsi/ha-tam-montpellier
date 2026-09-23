@@ -6,7 +6,8 @@
         "description": "Real-time departures of the Montpellier tramway (TaM open data, ODbL licence). The default addresses are fine; only change them if the operator moves the feeds.\n\nOnce the integration is added, use \"Add stop\" to pick the stops to follow.",
         "data": {
           "trip_updates_url": "Real-time feed (GTFS-RT TripUpdate)",
-          "gtfs_url": "Timetables (GTFS)"
+          "gtfs_url": "Timetables (GTFS)",
+          "alerts_url": "Service alerts (GTFS-RT Alert)"
         }
       }
     },
@@ -53,6 +54,22 @@
     }
   },
   "entity": {
+    "binary_sensor": {
+      "disruption": {
+        "name": "Disruption",
+        "state_attributes": {
+          "line": {
+            "name": "Line"
+          },
+          "message": {
+            "name": "Message"
+          },
+          "alerts": {
+            "name": "Alerts"
+          }
+        }
+      }
+    },
     "sensor": {
       "next_departure": {
         "name": "Next departure",

@@ -27,15 +27,14 @@ from homeassistant.components.sensor import (
 from homeassistant.config_entries import ConfigSubentry
 from homeassistant.const import UnitOfTime
 from homeassistant.core import CALLBACK_TYPE, HomeAssistant, callback
-from homeassistant.helpers.device_registry import DeviceEntryType, DeviceInfo
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.event import async_track_point_in_utc_time
-from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.util import dt as dt_util
 
-from .const import ATTRIBUTION, DOMAIN, SUBENTRY_TYPE_STOP
-from .coordinator import TamConfigEntry, TamCoordinator, stop_key_from_data
+from .const import SUBENTRY_TYPE_STOP
+from .coordinator import TamConfigEntry, TamCoordinator
 from .departures import Departure
+from .entity import TamStopEntity
 
 PARALLEL_UPDATES = 0
 
@@ -122,12 +121,10 @@ async def async_setup_entry(
         )
 
 
-class TamDepartureSensor(CoordinatorEntity[TamCoordinator], SensorEntity):
+class TamDepartureSensor(TamStopEntity, SensorEntity):
     """A departure at a stop, for a line and direction."""
 
     entity_description: TamSensorEntityDescription
-    _attr_attribution = ATTRIBUTION
-    _attr_has_entity_name = True
     _unrecorded_attributes = frozenset({"departures", "line_color", "line_text_color"})
 
     def __init__(
@@ -137,20 +134,7 @@ class TamDepartureSensor(CoordinatorEntity[TamCoordinator], SensorEntity):
         description: TamSensorEntityDescription,
     ) -> None:
         """Initialize the sensor."""
-        super().__init__(coordinator)
-        self.entity_description = description
-        self._stop_key = stop_key_from_data(subentry.data)
-        stop_id, route_id, direction_id = self._stop_key
-        self._route = coordinator.static.routes.get(route_id)
-        line = self._route.short_name if self._route else route_id
-        self._attr_unique_id = f"{stop_id}_{route_id}_{direction_id}_{description.key}"
-        self._attr_device_info = DeviceInfo(
-            identifiers={(DOMAIN, f"{stop_id}_{route_id}_{direction_id}")},
-            name=subentry.title,
-            manufacturer="TaM",
-            model=f"Tram {line}",
-            entry_type=DeviceEntryType.SERVICE,
-        )
+        super().__init__(coordinator, subentry, description)
         self._unsub_refresh: CALLBACK_TYPE | None = None
 
     async def async_added_to_hass(self) -> None:
@@ -224,7 +208,7 @@ class TamDepartureSensor(CoordinatorEntity[TamCoordinator], SensorEntity):
         departures = self._departures(now)
         departure = self._departure(departures)
         attributes: dict[str, Any] = {
-            "line": self._route.short_name if self._route else self._stop_key[1],
+            "line": self._line,
             "line_color": f"#{self._route.color}" if self._route else None,
             "line_text_color": f"#{self._route.text_color}" if self._route else None,
             "destination": departure.headsign if departure else None,
