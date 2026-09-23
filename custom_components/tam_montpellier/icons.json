@@ -22,11 +22,7 @@
         "default": "mdi:sign-direction"
       },
       "alert_message": {
-        "default": "mdi:message-alert-outline",
-        "state": {
-          "Aucune perturbation": "mdi:message-check-outline",
-          "No disruption": "mdi:message-check-outline"
-        }
+        "default": "mdi:message-alert-outline"
       }
     }
   }

@@ -265,6 +265,14 @@ class TamAlertMessageSensor(TamStopEntity, SensorEntity):
         return _ALERT_SEPARATOR.join(alert.description for alert in alerts)
 
     @property
+    def icon(self) -> str | None:
+        """Show a checked message when the service runs normally.
+
+        The state is free text, so icons.json cannot map icons to states.
+        """
+        return None if self._active_alerts() else "mdi:message-check-outline"
+
+    @property
     def native_value(self) -> str:
         """Return the alert text, or a "no disruption" text."""
         if (message := self._message()) is None:

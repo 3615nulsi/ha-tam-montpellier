@@ -380,7 +380,9 @@ async def test_disruption_sensor(
     state = hass.states.get(DISRUPTION_SENSOR)
     assert state.state == "off"
     assert state.attributes["alerts"] == []
-    assert hass.states.get(ALERT_MESSAGE_SENSOR).state == "No disruption"
+    message = hass.states.get(ALERT_MESSAGE_SENSOR)
+    assert message.state == "No disruption"
+    assert message.attributes["icon"] == "mdi:message-check-outline"
 
     # A failing alert feed keeps the last known alerts.
     aioclient_mock.clear_requests()
