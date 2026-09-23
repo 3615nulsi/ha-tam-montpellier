@@ -102,6 +102,17 @@ SENSOR_DESCRIPTIONS: tuple[TamSensorEntityDescription, ...] = (
 )
 
 
+ALERT_MESSAGE_DESCRIPTION = SensorEntityDescription(
+    key="alert_message",
+    translation_key="alert_message",
+)
+
+# Home Assistant rejects states longer than this.
+_MAX_STATE_LENGTH = 255
+_ALERT_SEPARATOR = " • "
+_NO_ALERT = {"fr": "Aucune perturbation", "en": "No disruption"}
+
+
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: TamConfigEntry,
@@ -112,13 +123,14 @@ async def async_setup_entry(
     for subentry in entry.subentries.values():
         if subentry.subentry_type != SUBENTRY_TYPE_STOP:
             continue
-        async_add_entities(
-            (
-                TamDepartureSensor(coordinator, subentry, description)
-                for description in SENSOR_DESCRIPTIONS
-            ),
-            config_subentry_id=subentry.subentry_id,
+        entities: list[SensorEntity] = [
+            TamDepartureSensor(coordinator, subentry, description)
+            for description in SENSOR_DESCRIPTIONS
+        ]
+        entities.append(
+            TamAlertMessageSensor(coordinator, subentry, ALERT_MESSAGE_DESCRIPTION)
         )
+        async_add_entities(entities, config_subentry_id=subentry.subentry_id)
 
 
 class TamDepartureSensor(TamStopEntity, SensorEntity):
@@ -235,3 +247,38 @@ def _delay_minutes(departure: Departure | None) -> int | None:
     if departure is None or departure.delay is None:
         return None
     return round(departure.delay / 60)
+
+
+class TamAlertMessageSensor(TamStopEntity, SensorEntity):
+    """Text of the service alerts in effect for the stop.
+
+    States are limited to 255 characters: longer texts are truncated in the
+    state and given in full in the ``full_message`` attribute.
+    """
+
+    _unrecorded_attributes = frozenset({"full_message"})
+
+    def _message(self) -> str | None:
+        alerts = self._active_alerts()
+        if not alerts:
+            return None
+        return _ALERT_SEPARATOR.join(alert.description for alert in alerts)
+
+    @property
+    def native_value(self) -> str:
+        """Return the alert text, or a "no disruption" text."""
+        if (message := self._message()) is None:
+            language = self.hass.config.language.split("-")[0]
+            return _NO_ALERT.get(language, _NO_ALERT["en"])
+        if len(message) > _MAX_STATE_LENGTH:
+            return message[: _MAX_STATE_LENGTH - 1].rstrip() + "…"
+        return message
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return the untruncated text and the number of alerts."""
+        return {
+            "line": self._line,
+            "alert_count": len(self._active_alerts()),
+            "full_message": self._message(),
+        }

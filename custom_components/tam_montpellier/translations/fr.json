@@ -185,6 +185,20 @@
             "name": "Prochains passages"
           }
         }
+      },
+      "alert_message": {
+        "name": "Message de perturbation",
+        "state_attributes": {
+          "line": {
+            "name": "Ligne"
+          },
+          "alert_count": {
+            "name": "Nombre d'alertes"
+          },
+          "full_message": {
+            "name": "Message complet"
+          }
+        }
       }
     }
   },

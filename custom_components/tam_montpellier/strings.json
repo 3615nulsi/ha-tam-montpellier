@@ -185,6 +185,20 @@
             "name": "Upcoming departures"
           }
         }
+      },
+      "alert_message": {
+        "name": "Disruption message",
+        "state_attributes": {
+          "line": {
+            "name": "Line"
+          },
+          "alert_count": {
+            "name": "Number of alerts"
+          },
+          "full_message": {
+            "name": "Full message"
+          }
+        }
       }
     }
   },

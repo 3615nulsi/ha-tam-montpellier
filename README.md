@@ -43,6 +43,7 @@ le temps restant jusqu'à 1 min 30 : préférez le capteur minutes pour décider
 quand partir.
 
 | `binary_sensor.…_perturbation` | Allumé quand une alerte trafic TaM en cours concerne la ligne, l'arrêt ou tout le réseau |
+| `sensor.…_message_de_perturbation` | Texte des alertes en cours (séparées par « • »), ou « Aucune perturbation ». Tronqué à 255 caractères, limite de HA ; le texte complet est dans l'attribut `full_message` |
 
 Attributs : `line`, `line_color`, `destination`, `delay` (minutes) et `source`.
 Le capteur minutes porte aussi `departures`, les 6 prochains passages avec
@@ -91,7 +92,7 @@ conditions:
 card:
   type: markdown
   content: >
-    ⚠️ {{ state_attr('binary_sensor.comedie_mosson_tram_1_perturbation', 'message') }}
+    ⚠️ {{ state_attr('sensor.comedie_mosson_tram_1_message_de_perturbation', 'full_message') }}
 ```
 
 ### « Il est temps de partir »

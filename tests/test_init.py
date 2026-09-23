@@ -46,6 +46,7 @@ STOP_DATA = {CONF_ROUTE_ID: "1", CONF_DIRECTION_ID: 0, CONF_STOP_ID: "B"}
 NEXT_SENSOR = "sensor.bravo_delta_tram_1_next_departure"
 MINUTES_SENSOR = "sensor.bravo_delta_tram_1_minutes_to_next_departure"
 DISRUPTION_SENSOR = "binary_sensor.bravo_delta_tram_1_disruption"
+ALERT_MESSAGE_SENSOR = "sensor.bravo_delta_tram_1_disruption_message"
 
 
 @pytest.fixture(name="mock_feeds")
@@ -368,6 +369,10 @@ async def test_disruption_sensor(
         }
     ]
 
+    message = hass.states.get(ALERT_MESSAGE_SENSOR)
+    assert message.state == "TRAVAUX : arrêt Bravo non desservi."
+    assert message.attributes["alert_count"] == 1
+
     # The alert ends: the sensor turns off at the next update.
     freezer.move_to(paris(20, 1))
     await entry.runtime_data.async_refresh()
@@ -375,6 +380,7 @@ async def test_disruption_sensor(
     state = hass.states.get(DISRUPTION_SENSOR)
     assert state.state == "off"
     assert state.attributes["alerts"] == []
+    assert hass.states.get(ALERT_MESSAGE_SENSOR).state == "No disruption"
 
     # A failing alert feed keeps the last known alerts.
     aioclient_mock.clear_requests()
@@ -385,3 +391,33 @@ async def test_disruption_sensor(
     await entry.runtime_data.async_refresh()
     await hass.async_block_till_done()
     assert entry.runtime_data.alerts[0].alert_id == "works"
+
+
+async def test_alert_message_truncated(
+    hass: HomeAssistant,
+    aioclient_mock: AiohttpClientMocker,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """Several long alerts are joined, truncated in the state, full in attributes."""
+    freezer.move_to(paris(8, 12))
+    await hass.config.async_update(language="fr")
+    long_text = "Travaux importants sur la ligne 1. " * 8
+    aioclient_mock.get(DEFAULT_GTFS_URL, content=build_gtfs())
+    aioclient_mock.get(DEFAULT_TRIP_UPDATES_URL, content=build_trip_updates())
+    aioclient_mock.get(
+        DEFAULT_ALERTS_URL,
+        content=build_alerts(
+            {"id": "a", "informed": [{"route_id": "1"}], "description": long_text},
+            {"id": "b", "informed": [{"stop_id": "B"}], "description": "Quai déplacé."},
+        ),
+    )
+    entry = _entry()
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    state = hass.states.get("sensor.bravo_delta_tram_1_message_de_perturbation")
+    assert len(state.state) == 255
+    assert state.state.endswith("…")
+    assert state.attributes["alert_count"] == 2
+    assert state.attributes["full_message"] == f"{long_text.strip()} • Quai déplacé."

@@ -13,7 +13,6 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.util import dt as dt_util
 
-from .alerts import Alert, alerts_for
 from .const import SUBENTRY_TYPE_STOP
 from .coordinator import TamConfigEntry
 from .entity import TamStopEntity
@@ -49,19 +48,15 @@ class TamDisruptionSensor(TamStopEntity, BinarySensorEntity):
     _unrecorded_attributes = frozenset({"alerts"})
 
     @property
-    def _alerts(self) -> list[Alert]:
-        return alerts_for(self.coordinator.alerts, self._stop_key, dt_util.utcnow())
-
-    @property
     def is_on(self) -> bool:
         """Return whether the service is disrupted."""
-        return bool(self._alerts)
+        return bool(self._active_alerts())
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         """Return the active alerts."""
         now = dt_util.utcnow()
-        alerts = self._alerts
+        alerts = self._active_alerts()
         return {
             "line": self._line,
             "message": alerts[0].description if alerts else None,

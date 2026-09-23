@@ -6,7 +6,9 @@ from homeassistant.config_entries import ConfigSubentry
 from homeassistant.helpers.device_registry import DeviceEntryType, DeviceInfo
 from homeassistant.helpers.entity import EntityDescription
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
+from homeassistant.util import dt as dt_util
 
+from .alerts import Alert, alerts_for
 from .const import ATTRIBUTION, DOMAIN
 from .coordinator import TamCoordinator, stop_key_from_data
 
@@ -38,3 +40,7 @@ class TamStopEntity(CoordinatorEntity[TamCoordinator]):
             model=f"Tram {self._line}",
             entry_type=DeviceEntryType.SERVICE,
         )
+
+    def _active_alerts(self) -> list[Alert]:
+        """Return the alerts in effect for this stop, line and direction."""
+        return alerts_for(self.coordinator.alerts, self._stop_key, dt_util.utcnow())
