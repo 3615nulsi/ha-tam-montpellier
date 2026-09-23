@@ -149,6 +149,13 @@ async def test_sensors(
     assert following is not None
     assert following.state == "2026-09-23T06:23:00+00:00"
 
+    destination = hass.states.get(
+        "sensor.bravo_delta_tram_1_next_departure_destination"
+    )
+    assert destination is not None
+    assert destination.state == "Delta"
+    assert destination.attributes["line"] == "1"
+
     # The minutes sensor is enabled and rounds down: 2 min 30 s -> 2.
     minutes = hass.states.get(MINUTES_SENSOR)
     assert minutes is not None

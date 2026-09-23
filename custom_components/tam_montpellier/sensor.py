@@ -49,7 +49,7 @@ class TamSensorEntityDescription(SensorEntityDescription):
 
     index: int
     """Index of the departure in the list of upcoming departures."""
-    value_fn: Callable[[Departure, datetime], datetime | int]
+    value_fn: Callable[[Departure, datetime], datetime | int | str]
     minute_precision: bool = False
     """Rewrite the state each time a displayed minute count changes."""
 
@@ -85,6 +85,12 @@ SENSOR_DESCRIPTIONS: tuple[TamSensorEntityDescription, ...] = (
         device_class=SensorDeviceClass.TIMESTAMP,
         index=1,
         value_fn=lambda departure, _now: departure.time,
+    ),
+    TamSensorEntityDescription(
+        key="next_destination",
+        translation_key="next_destination",
+        index=0,
+        value_fn=lambda departure, _now: departure.headsign,
     ),
     TamSensorEntityDescription(
         key="minutes_to_next_departure",
@@ -204,8 +210,8 @@ class TamDepartureSensor(CoordinatorEntity[TamCoordinator], SensorEntity):
         return departures[index] if len(departures) > index else None
 
     @property
-    def native_value(self) -> datetime | int | None:
-        """Return the departure time (or whole minutes until departure)."""
+    def native_value(self) -> datetime | int | str | None:
+        """Return the departure time, minutes until departure or destination."""
         now = dt_util.utcnow()
         if (departure := self._departure(self._departures(now))) is None:
             return None

@@ -110,6 +110,34 @@
           }
         }
       },
+      "next_destination": {
+        "name": "Next departure destination",
+        "state_attributes": {
+          "line": {
+            "name": "Line"
+          },
+          "line_color": {
+            "name": "Line color"
+          },
+          "line_text_color": {
+            "name": "Text color"
+          },
+          "destination": {
+            "name": "Destination"
+          },
+          "source": {
+            "name": "Source",
+            "state": {
+              "realtime": "Real time",
+              "estimated": "Estimated",
+              "scheduled": "Scheduled"
+            }
+          },
+          "delay": {
+            "name": "Delay (min)"
+          }
+        }
+      },
       "minutes_to_next_departure": {
         "name": "Minutes to next departure",
         "state_attributes": {

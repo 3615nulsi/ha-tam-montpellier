@@ -110,6 +110,34 @@
           }
         }
       },
+      "next_destination": {
+        "name": "Destination du prochain passage",
+        "state_attributes": {
+          "line": {
+            "name": "Ligne"
+          },
+          "line_color": {
+            "name": "Couleur de la ligne"
+          },
+          "line_text_color": {
+            "name": "Couleur du texte"
+          },
+          "destination": {
+            "name": "Destination"
+          },
+          "source": {
+            "name": "Source",
+            "state": {
+              "realtime": "Temps réel",
+              "estimated": "Estimé",
+              "scheduled": "Théorique"
+            }
+          },
+          "delay": {
+            "name": "Retard (min)"
+          }
+        }
+      },
       "minutes_to_next_departure": {
         "name": "Minutes avant le prochain passage",
         "state_attributes": {

@@ -31,6 +31,7 @@ Chaque arrêt suivi devient un appareil (ex. « Comédie → Mosson (Tram 1) »)
 | `sensor.…_minutes_avant_le_prochain_passage` | **Minutes avant le prochain tram, arrondies à l'inférieur** : l'affichage à privilégier |
 | `sensor.…_prochain_passage` | Heure exacte du prochain passage |
 | `sensor.…_passage_suivant` | Heure exacte du passage d'après |
+| `sensor.…_destination_du_prochain_passage` | Destination du prochain tram, telle qu'affichée à l'avant de la rame. Utile sur les lignes à branches (T3 : Lattes ou Pérols) et en cas de service modifié (terminus partiel) |
 
 **Arrondi « pour ne pas rater le tram ».** Les minutes sont toujours arrondies à
 l'inférieur et mises à jour à la seconde exacte où elles changent. Quand le
@@ -64,6 +65,7 @@ type: markdown
 content: >
   {% set s = 'sensor.comedie_mosson_tram_1_minutes_avant_le_prochain_passage' %}
   ### Tram {{ state_attr(s, 'line') }} · Comédie
+  Prochain : **{{ states('sensor.comedie_mosson_tram_1_destination_du_prochain_passage') }}**
   {% for d in state_attr(s, 'departures') or [] %}
   - **{{ d.minutes }} min** → {{ d.destination }}
     {%- if d.source == 'scheduled' %} _(théorique)_{% endif %}
