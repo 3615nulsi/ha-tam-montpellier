@@ -1,5 +1,7 @@
 # TaM Montpellier – tramway pour Home Assistant
 
+<img src="custom_components/tam_montpellier/brand/icon@2x.png" alt="Icône" width="128" align="right">
+
 Intégration Home Assistant qui affiche les **prochains passages du tramway de
 Montpellier** aux arrêts de votre choix, à partir de l'open data temps réel de la
 TaM ([jeu de données](https://data.montpellier3m.fr/dataset/offre-de-transport-tam-en-temps-reel),
@@ -100,5 +102,9 @@ Tableau de départs en direct depuis les vrais flux, sans Home Assistant :
 ```bash
 .venv/bin/python scripts/live_board.py "Comédie" --line 1
 ```
+
+L'icône rend hommage aux livrées des rames montpelliéraines, les hirondelles
+de la ligne 1 et les fleurs de la ligne 2 dessinées par Garouste & Bonetti. Source :
+[`assets/icon.svg`](assets/icon.svg). Elle s'affiche dans Home Assistant 2026.3+.
 
 Données : © TaM / Montpellier Méditerranée Métropole, licence ODbL.

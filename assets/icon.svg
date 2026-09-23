@@ -1,0 +1,77 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0.35" y2="1">
+      <stop offset="0" stop-color="#1A7BD6"/>
+      <stop offset="1" stop-color="#00397A"/>
+    </linearGradient>
+    <linearGradient id="glass" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#16396B"/>
+      <stop offset="1" stop-color="#081F42"/>
+    </linearGradient>
+    <linearGradient id="body" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#E4ECF6"/>
+      <stop offset=".25" stop-color="#FFFFFF"/>
+      <stop offset=".75" stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#E4ECF6"/>
+    </linearGradient>
+    <clipPath id="squircle"><rect width="512" height="512" rx="116"/></clipPath>
+    <path id="swallow" d="M44 0C38-5 28-7 17-6C8-19-8-36-32-44C-20-28-11-15-6-6L-46-20L-17 0L-46 20L-6 6C-11 15-20 28-32 44C-8 36 8 19 17 6C28 7 38 5 44 0Z"/>
+    <ellipse id="petal" cx="0" cy="-98" rx="47" ry="90"/>
+  </defs>
+  <g clip-path="url(#squircle)">
+    <rect width="512" height="512" fill="url(#sky)"/>
+
+    <!-- rails -->
+    <g stroke="#fff" stroke-opacity=".45" stroke-width="7" stroke-linecap="round">
+      <path d="M204 452 L178 520"/>
+      <path d="M308 452 L334 520"/>
+    </g>
+
+    <!-- T2 flower blooming from the corner -->
+    <g transform="translate(470 474)">
+      <g fill="#EF7D00">
+        <use href="#petal"/><use href="#petal" transform="rotate(90)"/>
+        <use href="#petal" transform="rotate(180)"/><use href="#petal" transform="rotate(270)"/>
+      </g>
+      <g fill="#FAA63F">
+        <use href="#petal" transform="rotate(45)"/><use href="#petal" transform="rotate(135)"/>
+        <use href="#petal" transform="rotate(225)"/><use href="#petal" transform="rotate(315)"/>
+      </g>
+      <circle r="54" fill="#FFD23F"/>
+      <circle r="54" fill="none" stroke="#F4B400" stroke-width="6" stroke-dasharray="2 12" stroke-linecap="round"/>
+    </g>
+
+    <!-- overhead wire -->
+    <path d="M-10 104 Q256 122 522 104" fill="none" stroke="#fff" stroke-opacity=".5" stroke-width="5"/>
+
+    <!-- T1 swallows (Garouste &amp; Bonetti) -->
+    <g fill="#fff">
+      <use href="#swallow" transform="translate(112 66) rotate(-16)"/>
+      <use href="#swallow" transform="translate(404 58) scale(-.8 .8) rotate(-14)"/>
+      <use href="#swallow" transform="translate(76 214) rotate(-32) scale(.68)"/>
+      <use href="#swallow" transform="translate(438 204) scale(-.58 .58) rotate(-22)"/>
+    </g>
+
+    <!-- pantograph -->
+    <g fill="none" stroke="#fff" stroke-width="9" stroke-linejoin="round" stroke-linecap="round">
+      <path d="M224 152 L256 118 L288 152"/>
+      <path d="M228 113 H284"/>
+    </g>
+
+    <!-- Citadis front -->
+    <path d="M150 452 L144 262 C142 186 190 152 256 152 C322 152 370 186 368 262 L362 452 Z" fill="url(#body)"/>
+    <!-- destination display -->
+    <rect x="212" y="170" width="88" height="18" rx="9" fill="#081F42"/>
+    <rect x="224" y="176" width="40" height="6" rx="3" fill="#FFB547"/>
+    <!-- wrap-around windscreen -->
+    <path d="M166 270 C166 222 196 200 256 200 C316 200 346 222 346 270 L340 322 C300 336 212 336 172 322 Z" fill="url(#glass)"/>
+    <path d="M186 246 C192 226 212 216 240 214" fill="none" stroke="#fff" stroke-opacity=".38" stroke-width="9" stroke-linecap="round"/>
+    <!-- lights -->
+    <rect x="170" y="364" width="44" height="18" rx="9" fill="#FFD23F"/>
+    <rect x="298" y="364" width="44" height="18" rx="9" fill="#FFD23F"/>
+    <!-- T1 livery nod on the nose -->
+    <use href="#swallow" fill="#005CA9" transform="translate(256 373) rotate(-8) scale(.42)"/>
+    <!-- bumper -->
+    <path d="M151 414 H361 L362 452 H150 Z" fill="#CBDAEE"/>
+  </g>
+</svg>
