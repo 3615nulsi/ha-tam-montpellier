@@ -6,6 +6,13 @@
 [![Validate](https://github.com/3615nulsi/ha-tam-montpellier/actions/workflows/validate.yml/badge.svg)](https://github.com/3615nulsi/ha-tam-montpellier/actions/workflows/validate.yml)
 [![Tests](https://github.com/3615nulsi/ha-tam-montpellier/actions/workflows/tests.yml/badge.svg)](https://github.com/3615nulsi/ha-tam-montpellier/actions/workflows/tests.yml)
 
+> **English summary** — Home Assistant integration for the **Montpellier
+> tramway (TaM, France)**, built on the official GTFS / GTFS-RT open data.
+> Pick stops from the UI (line → direction → stop) and get real-time next
+> departures (rounded down so you never miss the tram), the next tram's
+> destination, service disruption sensors and a TaM-styled Lovelace card.
+> The rest of this documentation is in French, like its users.
+
 Intégration Home Assistant qui affiche les **prochains passages du tramway de
 Montpellier** aux arrêts de votre choix, à partir de l'open data temps réel de la
 TaM ([jeu de données](https://data.montpellier3m.fr/dataset/offre-de-transport-tam-en-temps-reel),
