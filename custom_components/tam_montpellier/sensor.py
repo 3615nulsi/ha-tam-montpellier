@@ -1,10 +1,21 @@
-"""Sensors exposing the next tram departures at the monitored stops."""
+"""Sensors exposing the next tram departures at the monitored stops.
+
+Minutes are always rounded down, so that "2 min" guarantees at least two
+minutes before the tram: someone leaving when the sensor says they have time
+arrives early rather than late. The minutes sensor is rewritten at the exact
+instant its value changes instead of waiting for the next poll.
+
+The timestamp sensors keep the exact predicted time. Note that the Home
+Assistant frontend displays them as "in X minutes" rounded to the nearest
+minute and refreshed once a minute, which may overestimate the remaining time
+by up to 1.5 minutes; the minutes sensor is the one to display.
+"""
 
 from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 import math
 from typing import Any
 
@@ -15,9 +26,10 @@ from homeassistant.components.sensor import (
 )
 from homeassistant.config_entries import ConfigSubentry
 from homeassistant.const import UnitOfTime
-from homeassistant.core import HomeAssistant
+from homeassistant.core import CALLBACK_TYPE, HomeAssistant, callback
 from homeassistant.helpers.device_registry import DeviceEntryType, DeviceInfo
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
+from homeassistant.helpers.event import async_track_point_in_utc_time
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.util import dt as dt_util
 
@@ -27,6 +39,9 @@ from .departures import Departure
 
 PARALLEL_UPDATES = 0
 
+# Refresh slightly after a boundary so the new value is already reached.
+_BOUNDARY_EPSILON = timedelta(milliseconds=50)
+
 
 @dataclass(frozen=True, kw_only=True)
 class TamSensorEntityDescription(SensorEntityDescription):
@@ -34,12 +49,26 @@ class TamSensorEntityDescription(SensorEntityDescription):
 
     index: int
     """Index of the departure in the list of upcoming departures."""
-    value_fn: Callable[[Departure], datetime | int]
+    value_fn: Callable[[Departure, datetime], datetime | int]
+    minute_precision: bool = False
+    """Rewrite the state each time a displayed minute count changes."""
 
 
-def _minutes_until(departure: Departure) -> int:
-    seconds = (departure.time - dt_util.now()).total_seconds()
+def minutes_until(departure: Departure, now: datetime) -> int:
+    """Return the whole minutes left before a departure, rounded down."""
+    seconds = (departure.time - now).total_seconds()
     return max(0, math.floor(seconds / 60))
+
+
+def next_minute_change(departure: Departure, now: datetime) -> datetime:
+    """Return when ``minutes_until`` of a departure next decreases.
+
+    With ``n`` whole minutes left, the count drops to ``n - 1`` once less
+    than ``n`` minutes remain, i.e. at ``time - n minutes``. With less than
+    a minute left, the next change is the departure itself.
+    """
+    minutes = math.floor((departure.time - now).total_seconds() / 60)
+    return departure.time - timedelta(minutes=max(minutes, 0)) + _BOUNDARY_EPSILON
 
 
 SENSOR_DESCRIPTIONS: tuple[TamSensorEntityDescription, ...] = (
@@ -48,22 +77,22 @@ SENSOR_DESCRIPTIONS: tuple[TamSensorEntityDescription, ...] = (
         translation_key="next_departure",
         device_class=SensorDeviceClass.TIMESTAMP,
         index=0,
-        value_fn=lambda departure: departure.time,
+        value_fn=lambda departure, _now: departure.time,
     ),
     TamSensorEntityDescription(
         key="following_departure",
         translation_key="following_departure",
         device_class=SensorDeviceClass.TIMESTAMP,
         index=1,
-        value_fn=lambda departure: departure.time,
+        value_fn=lambda departure, _now: departure.time,
     ),
     TamSensorEntityDescription(
         key="minutes_to_next_departure",
         translation_key="minutes_to_next_departure",
         native_unit_of_measurement=UnitOfTime.MINUTES,
         index=0,
-        value_fn=_minutes_until,
-        entity_registry_enabled_default=False,
+        value_fn=minutes_until,
+        minute_precision=True,
     ),
 )
 
@@ -106,8 +135,7 @@ class TamDepartureSensor(CoordinatorEntity[TamCoordinator], SensorEntity):
         self.entity_description = description
         self._stop_key = stop_key_from_data(subentry.data)
         stop_id, route_id, direction_id = self._stop_key
-        static = coordinator.static
-        self._route = static.routes.get(route_id)
+        self._route = coordinator.static.routes.get(route_id)
         line = self._route.short_name if self._route else route_id
         self._attr_unique_id = f"{stop_id}_{route_id}_{direction_id}_{description.key}"
         self._attr_device_info = DeviceInfo(
@@ -117,28 +145,78 @@ class TamDepartureSensor(CoordinatorEntity[TamCoordinator], SensorEntity):
             model=f"Tram {line}",
             entry_type=DeviceEntryType.SERVICE,
         )
+        self._unsub_refresh: CALLBACK_TYPE | None = None
 
-    @property
-    def _departures(self) -> list[Departure]:
-        return self.coordinator.data.get(self._stop_key, [])
+    async def async_added_to_hass(self) -> None:
+        """Schedule the first local refresh."""
+        await super().async_added_to_hass()
+        self.async_on_remove(self._cancel_refresh)
+        self._schedule_refresh()
 
-    @property
-    def _departure(self) -> Departure | None:
-        departures = self._departures
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        """Write the new data and reschedule the local refresh."""
+        super()._handle_coordinator_update()
+        self._schedule_refresh()
+
+    @callback
+    def _cancel_refresh(self) -> None:
+        if self._unsub_refresh is not None:
+            self._unsub_refresh()
+            self._unsub_refresh = None
+
+    @callback
+    def _schedule_refresh(self) -> None:
+        """Rewrite the state when it changes between two polls.
+
+        Departed trams are dropped at their departure time, and the minutes
+        sensor is refreshed at each minute boundary of its departures.
+        """
+        self._cancel_refresh()
+        now = dt_util.utcnow()
+        departures = self._departures(now)
+        if self.entity_description.minute_precision:
+            changes = [next_minute_change(dep, now) for dep in departures]
+        else:
+            departure = self._departure(departures)
+            changes = [departure.time + _BOUNDARY_EPSILON] if departure else []
+        if changes:
+            self._unsub_refresh = async_track_point_in_utc_time(
+                self.hass, self._async_refresh, min(changes)
+            )
+
+    @callback
+    def _async_refresh(self, _now: datetime) -> None:
+        self._unsub_refresh = None
+        self.async_write_ha_state()
+        self._schedule_refresh()
+
+    def _departures(self, now: datetime) -> list[Departure]:
+        """Return the upcoming departures, without the trams already gone."""
+        return [
+            dep
+            for dep in self.coordinator.data.get(self._stop_key, [])
+            if dep.time > now
+        ]
+
+    def _departure(self, departures: list[Departure]) -> Departure | None:
         index = self.entity_description.index
         return departures[index] if len(departures) > index else None
 
     @property
     def native_value(self) -> datetime | int | None:
-        """Return the departure time (or minutes until departure)."""
-        if (departure := self._departure) is None:
+        """Return the departure time (or whole minutes until departure)."""
+        now = dt_util.utcnow()
+        if (departure := self._departure(self._departures(now))) is None:
             return None
-        return self.entity_description.value_fn(departure)
+        return self.entity_description.value_fn(departure, now)
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         """Return details about the departure."""
-        departure = self._departure
+        now = dt_util.utcnow()
+        departures = self._departures(now)
+        departure = self._departure(departures)
         attributes: dict[str, Any] = {
             "line": self._route.short_name if self._route else self._stop_key[1],
             "line_color": f"#{self._route.color}" if self._route else None,
@@ -147,16 +225,17 @@ class TamDepartureSensor(CoordinatorEntity[TamCoordinator], SensorEntity):
             "source": departure.source.value if departure else None,
             "delay": _delay_minutes(departure),
         }
-        if self.entity_description.index == 0:
+        if self.entity_description.minute_precision:
+            # Kept up to date at each minute boundary, see _schedule_refresh.
             attributes["departures"] = [
                 {
                     "time": dep.time.isoformat(),
-                    "minutes": _minutes_until(dep),
+                    "minutes": minutes_until(dep, now),
                     "destination": dep.headsign,
                     "source": dep.source.value,
                     "delay": _delay_minutes(dep),
                 }
-                for dep in self._departures
+                for dep in departures
             ]
         return attributes
 

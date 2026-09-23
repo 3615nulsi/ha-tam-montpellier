@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import timedelta
+
 from aiohttp import ClientError
 from freezegun.api import FrozenDateTimeFactory
 import pytest
@@ -39,6 +41,7 @@ ENTRY_DATA = {
 }
 STOP_DATA = {CONF_ROUTE_ID: "1", CONF_DIRECTION_ID: 0, CONF_STOP_ID: "B"}
 NEXT_SENSOR = "sensor.bravo_delta_tram_1_next_departure"
+MINUTES_SENSOR = "sensor.bravo_delta_tram_1_minutes_to_next_departure"
 
 
 @pytest.fixture(name="mock_feeds")
@@ -140,25 +143,62 @@ async def test_sensors(
     assert state.attributes["delay"] == 2
     assert state.attributes["line"] == "1"
     assert state.attributes["line_color"] == "#005CA9"
-    departures = state.attributes["departures"]
-    assert [dep["source"] for dep in departures[:2]] == ["realtime", "scheduled"]
-    assert departures[1]["minutes"] == 11
+    assert "departures" not in state.attributes
 
     following = hass.states.get("sensor.bravo_delta_tram_1_following_departure")
     assert following is not None
     assert following.state == "2026-09-23T06:23:00+00:00"
 
-    minutes = entity_registry.async_get(
-        "sensor.bravo_delta_tram_1_minutes_to_next_departure"
-    )
+    # The minutes sensor is enabled and rounds down: 2 min 30 s -> 2.
+    minutes = hass.states.get(MINUTES_SENSOR)
     assert minutes is not None
-    assert minutes.disabled_by is er.RegistryEntryDisabler.INTEGRATION
+    assert minutes.state == "2"
+    departures = minutes.attributes["departures"]
+    assert [dep["source"] for dep in departures[:2]] == ["realtime", "scheduled"]
+    assert [dep["minutes"] for dep in departures[:2]] == [2, 11]
 
     # Once the tram has left, the next one becomes the next departure.
     freezer.move_to(paris(8, 16))
     await entry.runtime_data.async_refresh()
     await hass.async_block_till_done()
     assert hass.states.get(NEXT_SENSOR).state == "2026-09-23T06:23:00+00:00"
+
+
+async def test_minutes_follow_the_clock(
+    hass: HomeAssistant,
+    mock_feeds: AiohttpClientMocker,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """Minutes drop at the exact boundary, without waiting for a poll.
+
+    Leaving when the sensor says N minutes always leaves at least N minutes.
+    """
+    freezer.move_to(paris(8, 12, 20))
+    entry = _entry()
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    # Tram at 08:14:30: 2 min 10 s left.
+    assert hass.states.get(MINUTES_SENSOR).state == "2"
+
+    # 08:12:29.9: still more than 2 minutes left.
+    freezer.tick(timedelta(seconds=9.9))
+    async_fire_time_changed(hass)
+    await hass.async_block_till_done()
+    assert hass.states.get(MINUTES_SENSOR).state == "2"
+
+    # 08:12:30.1: less than 2 minutes left, well before the next poll.
+    freezer.tick(timedelta(seconds=0.2))
+    async_fire_time_changed(hass)
+    await hass.async_block_till_done()
+    assert hass.states.get(MINUTES_SENSOR).state == "1"
+
+    # 08:14:30.1: the tram has left; the next one (08:23) is shown at once.
+    freezer.tick(timedelta(minutes=2))
+    async_fire_time_changed(hass)
+    await hass.async_block_till_done()
+    assert hass.states.get(NEXT_SENSOR).state == "2026-09-23T06:23:00+00:00"
+    assert hass.states.get(MINUTES_SENSOR).state == "8"
 
 
 async def test_realtime_outage_falls_back_to_schedule(

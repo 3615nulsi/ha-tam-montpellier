@@ -28,12 +28,22 @@ Chaque arrêt suivi devient un appareil (ex. « Comédie → Mosson (Tram 1) »)
 
 | Entité | Description |
 |---|---|
-| `sensor.…_prochain_passage` | Heure du prochain passage (affichée « dans 3 minutes ») |
-| `sensor.…_passage_suivant` | Heure du passage d'après |
-| `sensor.…_minutes_avant_le_prochain_passage` | Minutes restantes, pour les automatisations (désactivée par défaut) |
+| `sensor.…_minutes_avant_le_prochain_passage` | **Minutes avant le prochain tram, arrondies à l'inférieur** : l'affichage à privilégier |
+| `sensor.…_prochain_passage` | Heure exacte du prochain passage |
+| `sensor.…_passage_suivant` | Heure exacte du passage d'après |
 
-Attributs du prochain passage : `line`, `line_color`, `destination`, `delay`
-(minutes), `source` et `departures`, la liste des 6 prochains passages.
+**Arrondi « pour ne pas rater le tram ».** Les minutes sont toujours arrondies à
+l'inférieur et mises à jour à la seconde exacte où elles changent. Quand le
+capteur annonce « 2 min », il reste donc au moins 2 minutes : en partant à ce
+moment-là, on arrive en avance, jamais en retard. À l'inverse, l'affichage
+« dans X minutes » que Home Assistant génère pour les capteurs d'heure arrondit
+au plus proche et ne se rafraîchit qu'une fois par minute. Il peut surestimer
+le temps restant jusqu'à 1 min 30 : préférez le capteur minutes pour décider
+quand partir.
+
+Attributs : `line`, `line_color`, `destination`, `delay` (minutes) et `source`.
+Le capteur minutes porte aussi `departures`, les 6 prochains passages avec
+leurs minutes restantes, calculées selon le même arrondi.
 
 `source` indique la fiabilité de l'horaire :
 
@@ -52,7 +62,7 @@ théoriques plutôt que de devenir indisponibles.
 ```yaml
 type: markdown
 content: >
-  {% set s = 'sensor.comedie_mosson_tram_1_prochain_passage' %}
+  {% set s = 'sensor.comedie_mosson_tram_1_minutes_avant_le_prochain_passage' %}
   ### Tram {{ state_attr(s, 'line') }} · Comédie
   {% for d in state_attr(s, 'departures') or [] %}
   - **{{ d.minutes }} min** → {{ d.destination }}
@@ -64,7 +74,7 @@ content: >
 ### « Il est temps de partir »
 
 Notification quand le prochain tram passe dans 8 minutes (temps de marche
-jusqu'à l'arrêt), avec le capteur « minutes » activé :
+jusqu'à l'arrêt) :
 
 ```yaml
 triggers:
@@ -75,7 +85,7 @@ actions:
   - action: notify.mobile_app_mon_telephone
     data:
       message: >
-        Tram {{ state_attr('sensor.comedie_mosson_tram_1_prochain_passage', 'line') }}
+        Tram {{ state_attr(trigger.entity_id, 'line') }}
         dans {{ states(trigger.entity_id) }} min, c'est le moment de partir.
 ```
 

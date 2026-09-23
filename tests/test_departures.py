@@ -3,11 +3,13 @@
 from __future__ import annotations
 
 from collections import Counter
+from datetime import timedelta
 from pathlib import Path
 
 import pytest
 
 from custom_components.tam_montpellier.departures import (
+    Departure,
     DepartureSource,
     RealtimeSnapshot,
     compute_departures,
@@ -18,6 +20,10 @@ from custom_components.tam_montpellier.gtfs_static import (
     StaticData,
     _direction_label,
     parse_static,
+)
+from custom_components.tam_montpellier.sensor import (
+    minutes_until,
+    next_minute_change,
 )
 
 from .conftest import build_trip_updates, paris, trip_id
@@ -222,3 +228,27 @@ def test_other_direction_and_line_ignored(static: StaticData) -> None:
     )
     departures = _departures(static, payload, paris(8, 15))
     assert departures[0].time == paris(8, 23)
+
+
+@pytest.mark.parametrize(
+    ("now", "minutes", "change"),
+    [
+        (paris(8, 12, 0), 2, paris(8, 12, 30)),
+        (paris(8, 12, 30), 2, paris(8, 12, 30)),
+        (paris(8, 12, 31), 1, paris(8, 13, 30)),
+        (paris(8, 14, 0), 0, paris(8, 14, 30)),
+    ],
+)
+def test_minutes_rounded_down(now, minutes: int, change) -> None:
+    """Minutes are rounded down and the next change is on the boundary."""
+    departure = Departure(
+        time=paris(8, 14, 30),
+        route_id="1",
+        headsign="Delta",
+        source=DepartureSource.REALTIME,
+        delay=None,
+        trip_id="t",
+    )
+    assert minutes_until(departure, now) == minutes
+    assert next_minute_change(departure, now) - change < timedelta(seconds=1)
+    assert next_minute_change(departure, now) > now
