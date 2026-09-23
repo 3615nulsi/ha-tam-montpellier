@@ -6,10 +6,15 @@ const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<
 const color = a.line_color || '#005CA9';
 const ink = a.line_text_color || '#FFFFFF';
 const line = a.line || '?';
-// Light line colors (T3 lime) are darkened for text on the card background.
+// Line colors used as text are adjusted to stay readable on the card:
+// light ones (T3 lime) darkened on light themes, dark ones (T1 blue, T4
+// brown, T5 green) lightened on dark themes.
 const rgb = (color.match(/[0-9a-f]{2}/gi) || ['00', '00', '00']).map((h) => parseInt(h, 16) / 255);
 const luminance = 0.2126 * rgb[0] + 0.7152 * rgb[1] + 0.0722 * rgb[2];
-const accent = luminance > 0.62 ? `color-mix(in srgb, ${color} 62%, #000)` : color;
+const darkTheme = Boolean(hass.themes && hass.themes.darkMode);
+let accent = color;
+if (!darkTheme && luminance > 0.62) accent = `color-mix(in srgb, ${color} 62%, #000)`;
+if (darkTheme && luminance < 0.4) accent = `color-mix(in srgb, ${color} 55%, #fff)`;
 // "Comédie → Mosson (Tram 1) Minutes avant le prochain passage"
 const title = (a.friendly_name || '').split(' (Tram')[0];
 const [stopName, direction] = title.includes(' → ') ? title.split(' → ') : [title, ''];
