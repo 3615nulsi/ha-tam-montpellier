@@ -15,6 +15,12 @@ updates:
     directory: "/"
     schedule:
       interval: "monthly"
+    # Must match the protobuf shipped by Home Assistant: majors wait for HA.
+    ignore:
+      - dependency-name: "protobuf"
+        update-types: ["version-update:semver-major"]
+      - dependency-name: "gtfs-realtime-bindings"
+        update-types: ["version-update:semver-major"]
     groups:
       test-deps:
         patterns: ["*"]
