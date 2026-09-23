@@ -1,0 +1,13 @@
+{
+  "domain": "tam_montpellier",
+  "name": "TaM Montpellier",
+  "codeowners": [],
+  "config_flow": true,
+  "documentation": "https://github.com/OWNER/ha-tam-montpellier",
+  "integration_type": "service",
+  "iot_class": "cloud_polling",
+  "issue_tracker": "https://github.com/OWNER/ha-tam-montpellier/issues",
+  "requirements": ["gtfs-realtime-bindings==2.2.0"],
+  "single_config_entry": true,
+  "version": "0.1.0"
+}

@@ -1,0 +1,9 @@
+{
+  "entity": {
+    "sensor": {
+      "next_departure": { "default": "mdi:tram" },
+      "following_departure": { "default": "mdi:tram" },
+      "minutes_to_next_departure": { "default": "mdi:timer-outline" }
+    }
+  }
+}

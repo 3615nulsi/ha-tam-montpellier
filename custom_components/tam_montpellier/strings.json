@@ -1,0 +1,104 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "TaM Montpellier",
+        "description": "Real-time departures of the Montpellier tramway (TaM open data, ODbL licence). The default addresses are fine; only change them if the operator moves the feeds.\n\nOnce the integration is added, use \"Add stop\" to pick the stops to follow.",
+        "data": {
+          "trip_updates_url": "Real-time feed (GTFS-RT TripUpdate)",
+          "gtfs_url": "Timetables (GTFS)"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Unable to reach the real-time feed.",
+      "invalid_feed": "The response is not a valid GTFS-RT feed."
+    },
+    "abort": {
+      "single_instance_allowed": "The integration is already configured. Add stops from its page."
+    }
+  },
+  "config_subentries": {
+    "stop": {
+      "entry_type": "Stop",
+      "initiate_flow": {
+        "user": "Add stop"
+      },
+      "step": {
+        "user": {
+          "title": "Select the line",
+          "data": {
+            "route_id": "Line"
+          }
+        },
+        "direction": {
+          "title": "Select the direction",
+          "description": "{line}: which way are you travelling?",
+          "data": {
+            "direction_id": "Direction"
+          }
+        },
+        "stop": {
+          "title": "Select the stop",
+          "description": "{line} towards {direction}.",
+          "data": {
+            "stop_id": "Stop"
+          }
+        }
+      },
+      "abort": {
+        "already_configured": "This stop is already followed for this line and direction.",
+        "entry_not_loaded": "The integration is not loaded: stops cannot be listed."
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "next_departure": {
+        "name": "Next departure",
+        "state_attributes": {
+          "line": { "name": "Line" },
+          "line_color": { "name": "Line color" },
+          "line_text_color": { "name": "Text color" },
+          "destination": { "name": "Destination" },
+          "source": {
+            "name": "Source",
+            "state": {
+              "realtime": "Real time",
+              "estimated": "Estimated",
+              "scheduled": "Scheduled"
+            }
+          },
+          "delay": { "name": "Delay (min)" },
+          "departures": { "name": "Upcoming departures" }
+        }
+      },
+      "following_departure": {
+        "name": "Following departure",
+        "state_attributes": {
+          "line": { "name": "Line" },
+          "line_color": { "name": "Line color" },
+          "line_text_color": { "name": "Text color" },
+          "destination": { "name": "Destination" },
+          "source": {
+            "name": "Source",
+            "state": {
+              "realtime": "Real time",
+              "estimated": "Estimated",
+              "scheduled": "Scheduled"
+            }
+          },
+          "delay": { "name": "Delay (min)" }
+        }
+      },
+      "minutes_to_next_departure": {
+        "name": "Minutes to next departure"
+      }
+    }
+  },
+  "exceptions": {
+    "gtfs_unavailable": {
+      "message": "Unable to load the TaM timetables: {error}"
+    }
+  }
+}

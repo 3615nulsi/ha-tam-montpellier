@@ -1,0 +1,104 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "TaM Montpellier",
+        "description": "Horaires en temps réel du tramway de Montpellier (open data TaM, licence ODbL). Les adresses par défaut conviennent ; elles ne sont à modifier que si l'opérateur les change.\n\nUne fois l'intégration ajoutée, utilisez « Ajouter un arrêt » pour choisir les arrêts à suivre.",
+        "data": {
+          "trip_updates_url": "Flux temps réel (GTFS-RT TripUpdate)",
+          "gtfs_url": "Horaires théoriques (GTFS)"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Impossible de joindre le flux temps réel.",
+      "invalid_feed": "La réponse n'est pas un flux GTFS-RT valide."
+    },
+    "abort": {
+      "single_instance_allowed": "L'intégration est déjà configurée. Ajoutez des arrêts depuis sa page."
+    }
+  },
+  "config_subentries": {
+    "stop": {
+      "entry_type": "Arrêt",
+      "initiate_flow": {
+        "user": "Ajouter un arrêt"
+      },
+      "step": {
+        "user": {
+          "title": "Choisir la ligne",
+          "data": {
+            "route_id": "Ligne"
+          }
+        },
+        "direction": {
+          "title": "Choisir la direction",
+          "description": "{line} : dans quel sens prenez-vous le tram ?",
+          "data": {
+            "direction_id": "Direction"
+          }
+        },
+        "stop": {
+          "title": "Choisir l'arrêt",
+          "description": "{line} vers {direction}.",
+          "data": {
+            "stop_id": "Arrêt"
+          }
+        }
+      },
+      "abort": {
+        "already_configured": "Cet arrêt est déjà suivi pour cette ligne et cette direction.",
+        "entry_not_loaded": "L'intégration n'est pas chargée : impossible de lister les arrêts."
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "next_departure": {
+        "name": "Prochain passage",
+        "state_attributes": {
+          "line": { "name": "Ligne" },
+          "line_color": { "name": "Couleur de la ligne" },
+          "line_text_color": { "name": "Couleur du texte" },
+          "destination": { "name": "Destination" },
+          "source": {
+            "name": "Source",
+            "state": {
+              "realtime": "Temps réel",
+              "estimated": "Estimé",
+              "scheduled": "Théorique"
+            }
+          },
+          "delay": { "name": "Retard (min)" },
+          "departures": { "name": "Prochains passages" }
+        }
+      },
+      "following_departure": {
+        "name": "Passage suivant",
+        "state_attributes": {
+          "line": { "name": "Ligne" },
+          "line_color": { "name": "Couleur de la ligne" },
+          "line_text_color": { "name": "Couleur du texte" },
+          "destination": { "name": "Destination" },
+          "source": {
+            "name": "Source",
+            "state": {
+              "realtime": "Temps réel",
+              "estimated": "Estimé",
+              "scheduled": "Théorique"
+            }
+          },
+          "delay": { "name": "Retard (min)" }
+        }
+      },
+      "minutes_to_next_departure": {
+        "name": "Minutes avant le prochain passage"
+      }
+    }
+  },
+  "exceptions": {
+    "gtfs_unavailable": {
+      "message": "Impossible de charger les horaires théoriques TaM : {error}"
+    }
+  }
+}
