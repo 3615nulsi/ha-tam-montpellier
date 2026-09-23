@@ -2,6 +2,10 @@
 
 <img src="custom_components/tam_montpellier/brand/icon@2x.png" alt="Icône" width="128" align="right">
 
+[![HACS](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://hacs.xyz/)
+[![Validate](https://github.com/3615nulsi/ha-tam-montpellier/actions/workflows/validate.yml/badge.svg)](https://github.com/3615nulsi/ha-tam-montpellier/actions/workflows/validate.yml)
+[![Tests](https://github.com/3615nulsi/ha-tam-montpellier/actions/workflows/tests.yml/badge.svg)](https://github.com/3615nulsi/ha-tam-montpellier/actions/workflows/tests.yml)
+
 Intégration Home Assistant qui affiche les **prochains passages du tramway de
 Montpellier** aux arrêts de votre choix, à partir de l'open data temps réel de la
 TaM ([jeu de données](https://data.montpellier3m.fr/dataset/offre-de-transport-tam-en-temps-reel),
@@ -9,17 +13,26 @@ licence ODbL).
 
 ## Installation
 
-**HACS** : *Intégrations → ⋮ → Dépôts personnalisés*, ajouter l'URL de ce dépôt
-(catégorie *Intégration*), installer « TaM Montpellier » puis redémarrer.
+### Avec HACS (recommandé)
 
-**Manuelle** : copier `custom_components/tam_montpellier` dans le dossier
-`custom_components` de votre configuration, puis redémarrer.
+[![Ouvrir dans HACS](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=3615nulsi&repository=ha-tam-montpellier&category=integration)
 
-Home Assistant 2026.2 ou plus récent est requis (version testée).
+Ou manuellement : *HACS → ⋮ → Dépôts personnalisés*, ajouter
+`https://github.com/3615nulsi/ha-tam-montpellier` (type *Intégration*),
+installer **TaM Montpellier**, puis redémarrer Home Assistant.
+
+### Manuelle
+
+Copier `custom_components/tam_montpellier` dans le dossier `custom_components`
+de votre configuration, puis redémarrer Home Assistant.
+
+Home Assistant 2026.2 ou plus récent est requis ; l'icône de l'intégration
+s'affiche à partir de 2026.3.
 
 ## Configuration
 
-1. *Paramètres → Appareils et services → Ajouter une intégration → TaM Montpellier*.
+1. [![Ajouter l'intégration](https://my.home-assistant.io/badges/config_flow_start.svg)](https://my.home-assistant.io/redirect/config_flow_start/?domain=tam_montpellier)
+   ou *Paramètres → Appareils et services → Ajouter une intégration → TaM Montpellier*.
    Les adresses des flux proposées par défaut conviennent.
 2. Sur la page de l'intégration, **Ajouter un arrêt** : choisir la ligne, la
    direction, puis l'arrêt. Recommencer pour chaque arrêt à suivre.
@@ -151,7 +164,7 @@ actions:
 
 ```bash
 uv venv --python 3.13 .venv
-uv pip install --python .venv/bin/python pytest-homeassistant-custom-component "protobuf==6.32.0" "gtfs-realtime-bindings==2.2.0"
+uv pip install --python .venv/bin/python -r requirements_test.txt
 .venv/bin/python -m pytest
 ```
 
@@ -165,4 +178,10 @@ L'icône rend hommage aux livrées des rames montpelliéraines, les hirondelles
 de la ligne 1 et les fleurs de la ligne 2 dessinées par Garouste & Bonetti. Source :
 [`assets/icon.svg`](assets/icon.svg). Elle s'affiche dans Home Assistant 2026.3+.
 
-Données : © TaM / Montpellier Méditerranée Métropole, licence ODbL.
+## Licence
+
+Code sous licence [MIT](LICENSE). Projet indépendant, non affilié à TaM ni à
+Montpellier Méditerranée Métropole.
+
+Données : © TaM / Montpellier Méditerranée Métropole, licence
+[ODbL](https://opendatacommons.org/licenses/odbl/).

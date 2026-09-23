@@ -1,6 +1,8 @@
 """Build the TaM Lovelace dashboard (button-card template + one card per stop).
 
-Usage: python lovelace/build_dashboard.py sensor.<stop>_minutes_avant_le_prochain_passage ...
+Usage:
+    python lovelace/build_dashboard.py \
+        sensor.<stop>_minutes_avant_le_prochain_passage ...
 Writes lovelace/dashboard.json, to send to the Lovelace config API.
 """
 
@@ -25,10 +27,14 @@ def template() -> dict:
                 {"grid-template-columns": "1fr"},
                 {"grid-template-rows": "auto"},
             ],
-            "custom_fields": {"board": [{"justify-self": "stretch"}, {"width": "100%"}]},
+            "custom_fields": {
+                "board": [{"justify-self": "stretch"}, {"width": "100%"}]
+            },
         },
         "extra_styles": (HERE / "tam_board.css").read_text(),
-        "custom_fields": {"board": "[[[\n" + (HERE / "tam_board.js").read_text() + "]]]"},
+        "custom_fields": {
+            "board": "[[[\n" + (HERE / "tam_board.js").read_text() + "]]]"
+        },
     }
 
 
@@ -61,5 +67,7 @@ def dashboard(entities: list[str]) -> dict:
 
 if __name__ == "__main__":
     config = dashboard(sys.argv[1:])
-    (HERE / "dashboard.json").write_text(json.dumps(config, ensure_ascii=False, indent=2))
+    (HERE / "dashboard.json").write_text(
+        json.dumps(config, ensure_ascii=False, indent=2)
+    )
     print(f"{len(sys.argv) - 1} card(s), {len(json.dumps(config))} bytes")
