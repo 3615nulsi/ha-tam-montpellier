@@ -81,6 +81,30 @@ content: >
   {% endfor %}
 ```
 
+### Carte « afficheur TaM » (button-card)
+
+Le dossier [`lovelace/`](lovelace/) contient une carte façon afficheur de quai,
+aux couleurs officielles de chaque ligne : bandeau de ligne (avec les hirondelles
+de la T1 ou les fleurs de la T2 en filigrane), compte à rebours en grand, voyant
+temps réel, trams suivants en pastilles et bandeau d'alerte en cas de
+perturbation. Elle nécessite [button-card](https://github.com/custom-cards/button-card).
+
+```bash
+python3 lovelace/build_dashboard.py sensor.comedie_mosson_tram_1_minutes_avant_le_prochain_passage
+```
+
+génère `lovelace/dashboard.json` : le modèle `tam_stop` (dans
+`button_card_templates`) et une vue avec une carte par arrêt. Une fois le modèle
+en place, une carte se déclare ainsi :
+
+```yaml
+type: custom:button-card
+template: tam_stop
+entity: sensor.comedie_mosson_tram_1_minutes_avant_le_prochain_passage
+triggers_update:
+  - sensor.comedie_mosson_tram_1_message_de_perturbation
+```
+
 ### Bandeau de perturbation (affiché seulement en cas d'alerte)
 
 ```yaml
