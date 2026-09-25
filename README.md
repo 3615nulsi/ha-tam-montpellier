@@ -106,12 +106,10 @@ content: >
 L'intégration fournit sa propre carte, aux couleurs officielles de chaque
 ligne : bandeau de ligne, compte à rebours en grand, voyant temps réel, trams
 suivants en pastilles et bandeau d'alerte en cas de perturbation. Rien à
-installer en plus.
+installer en plus. Le bandeau porte en filigrane un motif inspiré de la livrée
+de chaque ligne.
 
-Le bandeau porte en filigrane un motif inspiré de la livrée de chaque ligne :
-hirondelles (T1) et fleurs (T2) de Garouste & Bonetti, poissons et étoile de
-mer (T3) et soleil baroque à feuilles d'acanthe (T4) de Christian Lacroix,
-liane feuillue (T5) d'après « Feuille de vie » de Barthélémy Toguo.
+![Cartes « afficheur de quai » des cinq lignes de tramway](assets/cartes.png)
 
 1. Tableau de bord → ✏️ Modifier → **Ajouter une carte**.
 2. Cherchez **« TaM – Afficheur de quai »**.
