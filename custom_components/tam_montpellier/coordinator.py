@@ -39,7 +39,7 @@ from .departures import (
     compute_departures,
     parse_trip_updates,
 )
-from .gtfs_static import StaticData, StopKey, parse_static
+from .gtfs_static import StaticData, StopKey, load_static
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -79,6 +79,7 @@ class TamCoordinator(DataUpdateCoordinator[dict[StopKey, list[Departure]]]):
             update_interval=UPDATE_INTERVAL,
         )
         self._gtfs_path = Path(hass.config.path(STORAGE_DIR, DOMAIN, "gtfs.zip"))
+        self._static_cache_path = self._gtfs_path.with_name("gtfs_static.pickle")
         self._realtime_available = True
         self._alerts_available = True
         self.alerts: list[Alert] = []
@@ -90,10 +91,16 @@ class TamCoordinator(DataUpdateCoordinator[dict[StopKey, list[Departure]]]):
         }
 
     async def async_load_static(self, force_download: bool = False) -> None:
-        """Download (when outdated) and parse the static GTFS archive."""
+        """Download (when outdated) and parse the static GTFS archive.
+
+        The parsed archive is cached, so a restart does not parse it again.
+        """
         await self._async_download_gtfs(force_download)
         self.static = await self.hass.async_add_executor_job(
-            parse_static, self._gtfs_path, {key[0] for key in self.stop_keys}
+            load_static,
+            self._gtfs_path,
+            self._static_cache_path,
+            {key[0] for key in self.stop_keys},
         )
         _LOGGER.debug(
             "Loaded %d tram lines and %d trips from GTFS",

@@ -9,10 +9,12 @@ from __future__ import annotations
 from collections import Counter, defaultdict
 from collections.abc import Iterable, Iterator
 import csv
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 from datetime import date, datetime, time, timedelta
 import io
+from operator import itemgetter
 from pathlib import Path
+import pickle
 import re
 import sys
 from typing import IO
@@ -105,6 +107,29 @@ def parse_gtfs_time(value: str) -> int:
 def _read_csv(archive: zipfile.ZipFile, name: str) -> Iterator[dict[str, str]]:
     with archive.open(name) as raw:
         yield from csv.DictReader(io.TextIOWrapper(raw, encoding="utf-8-sig"))
+
+
+def _read_columns(
+    archive: zipfile.ZipFile, name: str, *columns: str
+) -> Iterator[tuple[str, ...]]:
+    """Read some columns of a large file, empty when a column is missing.
+
+    About twice as fast as ``csv.DictReader`` on the million rows of
+    ``stop_times.txt``.
+    """
+    with archive.open(name) as raw:
+        reader = csv.reader(io.TextIOWrapper(raw, encoding="utf-8-sig"))
+        header = {column: i for i, column in enumerate(next(reader, []))}
+        indexes = [header.get(column) for column in columns]
+        if None not in indexes:
+            getter = itemgetter(*indexes)
+            yield from (getter(row) for row in reader if row)
+            return
+        for row in reader:
+            if row:
+                yield tuple(
+                    row[i] if i is not None and i < len(row) else "" for i in indexes
+                )
 
 
 # Stop patterns used by less than this share of the trips of a line direction
@@ -202,16 +227,24 @@ def parse_static(
 
         trips: dict[str, TripInfo] = {}
         headsigns: dict[LineKey, Counter[str]] = defaultdict(Counter)
-        for row in _read_csv(archive, "trips.txt"):
-            if row["route_id"] not in routes:
+        for trip_id, route_id, direction_id, headsign, service_id in _read_columns(
+            archive,
+            "trips.txt",
+            "trip_id",
+            "route_id",
+            "direction_id",
+            "trip_headsign",
+            "service_id",
+        ):
+            if route_id not in routes:
                 continue
             info = TripInfo(
-                route_id=row["route_id"],
-                direction_id=int(row.get("direction_id") or 0),
-                headsign=row.get("trip_headsign", "").strip(),
-                service_id=sys.intern(row["service_id"]),
+                route_id=route_id,
+                direction_id=int(direction_id or 0),
+                headsign=headsign.strip(),
+                service_id=sys.intern(service_id),
             )
-            trips[row["trip_id"]] = info
+            trips[trip_id] = info
             if info.headsign:
                 headsigns[(info.route_id, info.direction_id)][info.headsign] += 1
 
@@ -248,19 +281,27 @@ def parse_static(
         trip_stops: dict[str, list[tuple[int, str]]] = defaultdict(list)
         trip_starts: dict[str, tuple[int, str, int]] = {}
         scheduled: dict[StopKey, list[ScheduledStop]] = defaultdict(list)
-        for row in _read_csv(archive, "stop_times.txt"):
-            trip = trips.get(row["trip_id"])
+        for trip_id, raw_stop_id, raw_sequence, departure, arrival in _read_columns(
+            archive,
+            "stop_times.txt",
+            "trip_id",
+            "stop_id",
+            "stop_sequence",
+            "departure_time",
+            "arrival_time",
+        ):
+            trip = trips.get(trip_id)
             if trip is None:
                 continue
-            stop_id = sys.intern(row["stop_id"])
-            sequence = int(row["stop_sequence"])
-            trip_stops[row["trip_id"]].append((sequence, stop_id))
-            departure = row.get("departure_time") or row.get("arrival_time")
+            stop_id = sys.intern(raw_stop_id)
+            sequence = int(raw_sequence)
+            trip_stops[trip_id].append((sequence, stop_id))
+            departure = departure or arrival
             if not departure:
                 continue
-            start = trip_starts.get(row["trip_id"])
+            start = trip_starts.get(trip_id)
             if start is None or sequence < start[0]:
-                trip_starts[row["trip_id"]] = (
+                trip_starts[trip_id] = (
                     sequence,
                     stop_id,
                     parse_gtfs_time(departure),
@@ -268,7 +309,7 @@ def parse_static(
             if stop_id in monitored:
                 scheduled[(stop_id, trip.route_id, trip.direction_id)].append(
                     ScheduledStop(
-                        trip_id=row["trip_id"],
+                        trip_id=trip_id,
                         service_id=trip.service_id,
                         departure=parse_gtfs_time(departure),
                         headsign=trip.headsign,
@@ -311,3 +352,49 @@ def parse_static(
         },
         scheduled=dict(scheduled),
     )
+
+
+# Bump when the parsing changes without changing the fields of StaticData.
+_CACHE_VERSION = 1
+
+
+def load_static(
+    archive_path: Path, cache_path: Path, monitored_stops: Iterable[str]
+) -> StaticData:
+    """Parse the GTFS archive, reusing the result cached by a previous run.
+
+    The cache is written next to the archive by this integration only; it is
+    used again as long as the archive and the monitored stops are unchanged.
+    """
+    stat = archive_path.stat()
+    key = (
+        _CACHE_VERSION,
+        tuple(f.name for f in fields(StaticData)),
+        stat.st_mtime_ns,
+        stat.st_size,
+        tuple(sorted(set(monitored_stops))),
+    )
+    try:
+        with cache_path.open("rb") as file:
+            cached_key, data = pickle.load(file)
+        if cached_key == key and isinstance(data, StaticData):
+            return data
+    except (
+        OSError,
+        EOFError,
+        pickle.UnpicklingError,
+        AttributeError,
+        ImportError,
+        IndexError,
+        TypeError,
+        ValueError,
+    ):
+        pass  # Missing, outdated or unreadable: parse the archive again.
+    data = parse_static(archive_path, monitored_stops)
+    try:
+        tmp = cache_path.with_suffix(".tmp")
+        tmp.write_bytes(pickle.dumps((key, data), pickle.HIGHEST_PROTOCOL))
+        tmp.replace(cache_path)
+    except OSError:
+        pass
+    return data

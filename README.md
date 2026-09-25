@@ -160,8 +160,9 @@ actions:
 ## Fonctionnement
 
 - Les flux temps réel (GTFS-RT `TripUpdate` et `Alert`) sont interrogés toutes les 30 secondes.
-- Les horaires théoriques (GTFS, environ 5 Mo) sont téléchargés au démarrage puis
-  chaque nuit à 3 h 30, et mis en cache dans `.storage/tam_montpellier/`. Seul le
+- Les horaires théoriques (GTFS, environ 8 Mo) sont téléchargés au démarrage puis
+  chaque nuit à 3 h 30, et mis en cache dans `.storage/tam_montpellier/` avec le
+  résultat de leur analyse : un redémarrage ne les analyse pas à nouveau. Seul le
   tram est conservé en mémoire.
 - Le flux TaM ne détaille les trajets qu'une fois la rame partie de son terminus.
   Pour un arrêt en milieu de ligne, les passages suivants sont donc estimés à
