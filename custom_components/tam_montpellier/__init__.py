@@ -37,14 +37,15 @@ _GTFS_ERRORS = (GtfsDownloadError, zipfile.BadZipFile, KeyError, ValueError)
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     """Serve the departure board card and load it in the frontend."""
     await hass.http.async_register_static_paths(
-        [StaticPathConfig(CARD_URL, str(CARD_PATH), cache_headers=False)]
+        [StaticPathConfig(CARD_URL, str(CARD_PATH), cache_headers=True)]
     )
     manifest = await hass.async_add_executor_job(
         (Path(__file__).parent / "manifest.json").read_text
     )
     if "frontend" not in hass.config.components:
         return True
-    # The version busts the browser cache when the integration is updated.
+    # The card is cached by browsers and apps; the version in its URL makes
+    # them fetch the new one when the integration is updated.
     add_extra_js_url(hass, f"{CARD_URL}?v={json.loads(manifest)['version']}")
     return True
 

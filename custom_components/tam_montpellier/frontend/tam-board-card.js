@@ -6,7 +6,7 @@
  * visual editor; the card finds that stop's sensors by itself.
  */
 
-const CARD_VERSION = "0.3.0";
+const CARD_VERSION = "0.4.0";
 const DOMAIN = "tam_montpellier";
 
 const STYLES = `
@@ -67,6 +67,162 @@ function stopDevices(hass) {
   return [...ids].map((id) => hass.devices?.[id]).filter(Boolean);
 }
 
+// ---------------------------------------------------------------------------
+// Line motifs, drawn as a watermark in the band, after each line's livery:
+// T1 swallows and T2 flowers (Garouste & Bonetti), T3 sea creatures and T4
+// Louis XIV sun with acanthus (Christian Lacroix), T5 leafy vine ("Feuille de
+// vie", Barthélémy Toguo). `ink` draws the shapes; `bg`, the band colour,
+// cuts details out of them.
+
+const fmt = (v) => v.toFixed(1);
+const lerp = (a, b, t) => a + (b - a) * t;
+const DEG = Math.PI / 180;
+
+/** Curve whose curvature (degrees per unit) follows k(t), width w(t). */
+function sweep(x, y, angle, len, k, w, n = 60) {
+  const pts = [];
+  let a = angle * DEG;
+  const ds = len / n;
+  for (let i = 0; i <= n; i++) {
+    const t = i / n;
+    pts.push([x, y, a, w(t)]);
+    a += k(t) * DEG * ds;
+    x += Math.cos(a) * ds;
+    y += Math.sin(a) * ds;
+  }
+  return pts;
+}
+
+/** Outline of a swept curve, with distinct widths on each side. */
+function ribbon(pts, left = (t, w) => w / 2, right = left) {
+  const n = pts.length - 1;
+  const side = (s, fn) => pts.map(([x, y, a, w], i) => {
+    const d = s * fn(i / n, w);
+    return `${fmt(x - Math.sin(a) * d)} ${fmt(y + Math.cos(a) * d)}`;
+  });
+  return `M${side(1, left).join('L')}L${side(-1, right).reverse().join('L')}Z`;
+}
+
+const path = (pts) => `<path d="${ribbon(pts)}"/>`;
+
+/** Centre line of part of a swept curve. */
+function spine(pts, from, to) {
+  const n = pts.length - 1;
+  return `M${pts.slice(Math.round(from * n), Math.round(to * n) + 1).map(([x, y]) => `${fmt(x)} ${fmt(y)}`).join('L')}`;
+}
+
+const SWALLOW = 'M44 0C38-5 28-7 17-6C8-19-8-36-32-44C-20-28-11-15-6-6L-46-20L-17 0L-46 20L-6 6C-11 15-20 28-32 44C-8 36 8 19 17 6C28 7 38 5 44 0Z';
+const FISH = 'M-20 0C-10-12 12-12 20 0C12 12-10 12-20 0ZM-20 0L-32-11L-28 0L-32 11ZM12-2.5a2.2 2.2 0 1 0 .1 0Z';
+
+function starPath(outer, inner) {
+  let d = '';
+  for (let i = 0; i < 10; i++) {
+    const a = (-90 + 36 * i) * DEG, r = i % 2 ? inner : outer;
+    d += `${i ? 'L' : 'M'}${fmt(r * Math.cos(a))} ${fmt(r * Math.sin(a))}`;
+  }
+  return `${d}Z`;
+}
+
+function swallows(ink) {
+  const bird = (t) => `<path d="${SWALLOW}" transform="${t}"/>`;
+  return `<g fill="${ink}">${bird('translate(40 34) rotate(-14) scale(.42)')}${bird('translate(96 20) scale(-.3 .3) rotate(-10)')}${bird('translate(120 58) rotate(-24) scale(.24)')}${bird('translate(76 62) scale(-.2 .2) rotate(-18)')}</g>`;
+}
+
+function flowers(ink, bg) {
+  const petals = [0, 72, 144, 216, 288].map((r) => `<ellipse rx="12.5" ry="14" cy="-16" transform="rotate(${r})"/>`).join('');
+  const flower = (t) => `<g transform="${t}">${petals}<circle r="9" fill="${bg}"/></g>`;
+  return `<g fill="${ink}">${flower('translate(94 40) rotate(-8)')}${flower('translate(34 22) scale(.45) rotate(20)')}${flower('translate(52 62) scale(.3) rotate(40)')}</g>`;
+}
+
+function sea(ink) {
+  return `<g fill="${ink}" fill-rule="evenodd"><path d="${FISH}" transform="translate(52 30) rotate(-10) scale(.85)"/><path d="${FISH}" transform="translate(96 60) scale(-.5 .5)"/><path d="${starPath(18, 7)}" stroke="${ink}" stroke-width="5" stroke-linejoin="round" transform="translate(124 26) rotate(12)"/><circle cx="76" cy="17" r="2.6"/><circle cx="83" cy="9" r="1.8"/></g>`;
+}
+
+function sun(ink, bg) {
+  const out = [];
+  const X = 75, Y = 39;
+  // Acanthus leaf: smooth inside its curl, the outside cut into lobes.
+  const leaf = (x, y, a, len, W, k, lobes = 3) => {
+    const pts = sweep(x, y, a, len, k, () => 0, 80);
+    const env = (t) => Math.pow(Math.sin(Math.PI * Math.min(1, 0.06 + t)), 0.7);
+    const lobed = (t) => W * env(t) * (0.45 + 0.55 * Math.pow((t * lobes + 0.15) % 1, 1.6));
+    const smooth = (t) => W * 0.32 * env(t) + 0.3;
+    return `<path d="${k(0.5) > 0 ? ribbon(pts, lobed, smooth) : ribbon(pts, smooth, lobed)}"/>`;
+  };
+  // Rays, straight and flaming in turn, around the disc.
+  for (let i = 0; i < 16; i++) {
+    const a = (i / 16) * 2 * Math.PI, b = a + Math.PI / 16, w = 0.16;
+    const at = (r, t) => `${fmt(X + r * Math.cos(t))} ${fmt(Y + r * Math.sin(t))}`;
+    out.push(`<path d="M${at(10, a - w)}L${at(19, a)}L${at(10, a + w)}Z"/>`);
+    out.push(path(sweep(X + 9.5 * Math.cos(b), Y + 9.5 * Math.sin(b), b / DEG, 9, (t) => 28 * Math.sin(2 * Math.PI * t), (t) => lerp(2.2, 0.3, t), 24)));
+  }
+  out.push(`<circle cx="${X}" cy="${Y}" r="9"/><circle cx="${X}" cy="${Y}" r="6.4" fill="none" stroke="${bg}" stroke-width="0.9"/>`);
+  // Beaded medallion, crown and pendant.
+  for (let i = 0; i < 36; i++) {
+    const a = (i / 36) * 2 * Math.PI;
+    out.push(`<circle cx="${fmt(X + 23 * Math.cos(a))}" cy="${fmt(Y + 23 * Math.sin(a))}" r="${i % 2 ? 0.9 : 1.4}"/>`);
+  }
+  out.push(`<path d="M${X - 8} 13.5H${X + 8}L${X + 9.5} 6.5L${X + 4.5} 10L${X} 4.5L${X - 4.5} 10L${X - 9.5} 6.5Z"/>`,
+    `<circle cx="${X}" cy="4" r="1.3"/><circle cx="${X - 9.5}" cy="6" r="1.1"/><circle cx="${X + 9.5}" cy="6" r="1.1"/>`,
+    `<circle cx="${X}" cy="65.5" r="1.3"/><path d="M${X} 68C${X + 4} 72 ${X + 3} 76 ${X} 77.5C${X - 3} 76 ${X - 4} 72 ${X} 68Z"/>`);
+  // Acanthus rinceau on each side, rising into a volute.
+  const side = [];
+  const main = sweep(92, 56, 12, 96, (t) => -(1.2 + 15 * Math.pow(t, 2.6)), (t) => 1 + 2.4 * Math.pow(Math.sin(Math.PI * Math.min(1, t * 1.1)), 0.6), 100);
+  side.push(path(main));
+  const [ax, ay, aa] = main[30];
+  side.push(path(sweep(ax, ay, aa / DEG + 30, 36, (t) => 1 + 24 * Math.pow(t, 2.2), (t) => lerp(2, 0.9, t), 60)));
+  side.push(leaf(ax, ay, aa / DEG - 70, 20, 7, (t) => 4 + 16 * t * t, 3.5));
+  const [bx, by, ba] = main[64];
+  side.push(leaf(bx, by, ba / DEG + 80, 15, 5.5, (t) => 4 + 16 * t * t));
+  side.push(leaf(96, 26, -35, 22, 6.5, (t) => 3 + 14 * t * t, 3.5));
+  out.push(side.join(''), `<g transform="translate(150 0) scale(-1 1)">${side.join('')}</g>`);
+  return `<g fill="${ink}">${out.join('')}</g>`;
+}
+
+function vine(ink, bg) {
+  const out = [];
+  const N = 130;
+  const vein = (pts, from, to) => `<path d="${spine(pts, from, to)}" stroke="${bg}" stroke-width="0.9" fill="none" stroke-linecap="round"/>`;
+  const coil = (x, y, a, len, dir, w0) => path(sweep(x, y, a, len, (u) => dir * (0.5 + 34 * Math.pow(u, 2.2)), (u) => lerp(w0, 0.8, u), 80));
+  // Stem waving across the band, ending in a tendril.
+  const stem = sweep(-2, 60, -32, N, (t) => 1.1 * Math.sin(2 * Math.PI * (1.1 * t + 0.02)), (t) => lerp(2.6, 1.4, t), N);
+  out.push(path(stem));
+  const [ex, ey, ea] = stem[N];
+  out.push(coil(ex, ey, ea / DEG, 44, -1, 1.4));
+  // Leaves on alternate sides, some melting into a coiling tendril:
+  // [position, side, petiole, length, width, tendril, curl].
+  for (const [t, s, pet, len, W, tail, curl] of [
+    [0.14, -1, 4, 20, 8, 0, 0], [0.3, 1, 3, 20, 8, 22, 34], [0.47, -1, 3, 27, 11, 36, 36],
+    [0.64, 1, 3, 19, 8, 0, 0], [0.76, -1, 3, 20, 8, 24, 34], [0.88, 1, 3, 17, 7, 0, 0],
+  ]) {
+    const [x, y, a] = stem[Math.round(t * N)];
+    const total = pet + len + tail, L0 = pet / total, L1 = (pet + len) / total, bend = s * 0.5;
+    const leaf = sweep(x, y, a / DEG + s * 50, total,
+      (u) => (u < L1 ? bend : bend - s * curl * Math.pow((u - L1) / (1 - L1), 2)),
+      (u) => (u < L0 ? 1.6 : u < L1 ? 1.4 + W * Math.pow(Math.sin(Math.PI * (u - L0) / (L1 - L0)), 0.9) : lerp(1.4, 0.8, (u - L1) / (1 - L1))),
+      Math.max(60, Math.round(total)));
+    out.push(path(leaf), vein(leaf, L0 + 0.03, L1 - 0.03));
+  }
+  for (const [t, s, len] of [[0.22, -1, 26], [0.56, -1, 24], [0.71, 1, 24]]) {
+    const [x, y, a] = stem[Math.round(t * N)];
+    out.push(coil(x, y, a / DEG + s * 38, len, s, 1.2));
+  }
+  return `<g fill="${ink}">${out.join('')}</g>`;
+}
+
+const MOTIFS = { '1': swallows, '2': flowers, '3': sea, '4': sun, '5': vine };
+const motifCache = new Map();
+
+/** Watermark of a line, drawn in `ink` over its `bg` colour. */
+function lineMotif(line, ink, bg) {
+  if (!MOTIFS[line]) return '';
+  const key = `${line}|${ink}|${bg}`;
+  if (!motifCache.has(key)) {
+    motifCache.set(key, `<svg class="motif" viewBox="0 0 150 80" aria-hidden="true">${MOTIFS[line](ink, bg)}</svg>`);
+  }
+  return motifCache.get(key);
+}
+
 function render(entity, states, hass, variables, alertEntity) {
   const e = entity;
   if (!e) return '<div class="tam empty">Capteur introuvable</div>';
@@ -91,15 +247,7 @@ function render(entity, states, hass, variables, alertEntity) {
   const towards = variables.direction || direction;
   const deps = Array.isArray(a.departures) ? a.departures : [];
 
-  // Line motifs: Garouste & Bonetti swallows (T1) and flowers (T2).
-  const swallow = 'M44 0C38-5 28-7 17-6C8-19-8-36-32-44C-20-28-11-15-6-6L-46-20L-17 0L-46 20L-6 6C-11 15-20 28-32 44C-8 36 8 19 17 6C28 7 38 5 44 0Z';
-  const petals = [0, 45, 90, 135, 180, 225, 270, 315]
-    .map((r) => `<ellipse rx="11" ry="21" cy="-24" transform="rotate(${r})"/>`).join('');
-  const motifs = {
-    '1': `<g fill="${ink}"><path d="${swallow}" transform="translate(40 34) rotate(-14) scale(.42)"/><path d="${swallow}" transform="translate(96 20) scale(-.3 .3) rotate(-10)"/><path d="${swallow}" transform="translate(120 58) rotate(-24) scale(.24)"/></g>`,
-    '2': `<g fill="${ink}"><g transform="translate(92 40)">${petals}<circle r="11"/></g><g transform="translate(34 22) scale(.45)">${petals}<circle r="11"/></g></g>`,
-  };
-  const motif = motifs[line] ? `<svg class="motif" viewBox="0 0 150 80" aria-hidden="true">${motifs[line]}</svg>` : '';
+  const motif = lineMotif(line, ink, color);
 
   const sources = {
     realtime: '<span class="src live"><i></i>Temps réel</span>',
