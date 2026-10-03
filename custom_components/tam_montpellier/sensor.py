@@ -227,6 +227,8 @@ class TamDepartureSensor(TamStopEntity, SensorEntity):
             "source": departure.source.value if departure else None,
             "delay": _delay_minutes(departure),
         }
+        if self._clockwise is not None:
+            attributes["clockwise"] = self._clockwise
         if self.entity_description.minute_precision:
             # Kept up to date at each minute boundary, see _schedule_refresh.
             attributes["departures"] = [

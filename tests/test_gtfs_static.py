@@ -8,7 +8,12 @@ from unittest.mock import patch
 import zipfile
 
 from custom_components.tam_montpellier import gtfs_static
-from custom_components.tam_montpellier.gtfs_static import _read_columns, load_static
+from custom_components.tam_montpellier.config_flow import _direction_option
+from custom_components.tam_montpellier.gtfs_static import (
+    _read_columns,
+    load_static,
+    parse_static,
+)
 
 
 def test_read_columns_missing_column(tmp_path: Path) -> None:
@@ -51,3 +56,59 @@ def test_load_static_cache_invalidated(gtfs_zip: Path, tmp_path: Path) -> None:
         data = load_static(gtfs_zip, cache, {"B", "C"})
         assert mock.call_count == 4
     assert data.scheduled
+
+
+def _loop_gtfs(path: Path) -> Path:
+    """Write a circular line around a square, starting from its south corner.
+
+    Direction 0 runs west, north, east and back south: clockwise on the map.
+    """
+    stops = {
+        "S0": ("Sud", 43.59, 3.88),
+        "W": ("Ouest - Place", 43.60, 3.87),
+        "N": ("Nord", 43.61, 3.88),
+        "E": ("Est", 43.60, 3.89),
+        "S1": ("Sud", 43.5901, 3.8801),
+    }
+    files = {
+        "agency.txt": "agency_id,agency_name,agency_url,agency_timezone\n"
+        "TAM,TaM,https://example.com,Europe/Paris\n",
+        "routes.txt": "route_id,route_short_name,route_long_name,route_type\n"
+        "4,4,Sud - Sud,0\n",
+        "stops.txt": "stop_id,stop_name,stop_lat,stop_lon\n"
+        + "".join(f"{i},{n},{lat},{lon}\n" for i, (n, lat, lon) in stops.items()),
+        "calendar_dates.txt": "service_id,date,exception_type\nS,20260923,1\n",
+        "trips.txt": "route_id,service_id,trip_id,trip_headsign,direction_id\n"
+        "4,S,a,Sud A,0\n4,S,b,Sud B,1\n",
+        "stop_times.txt": "trip_id,arrival_time,departure_time,stop_id,stop_sequence\n"
+        + "".join(
+            f"{trip},08:0{seq}:00,08:0{seq}:00,{stop},{seq}\n"
+            for trip, order in (("a", "S0 W N E S1"), ("b", "S1 E N W S0"))
+            for seq, stop in enumerate(order.split())
+        ),
+    }
+    with zipfile.ZipFile(path, "w") as archive:
+        for name, content in files.items():
+            archive.writestr(name, content)
+    return path
+
+
+def test_circular_line_directions(tmp_path: Path, gtfs_zip: Path) -> None:
+    """Circular lines are told apart by their way round, others by destination."""
+    static = parse_static(_loop_gtfs(tmp_path / "loop.zip"), {"N"})
+    assert static.clockwise == {("4", 0): True, ("4", 1): False}
+    assert _direction_option(static, "4", 0) == "4a · sens horaire (Ouest → Nord → Est)"
+    assert (
+        _direction_option(static, "4", 1)
+        == "4b · sens antihoraire (Est → Nord → Ouest)"
+    )
+    # Each direction is named as a line, so destinations drop its letter.
+    assert static.line_name("4", 1) == "4b"
+    assert static.direction_label("4", 1) == "Sud"
+    assert static.trips["b"].headsign == "Sud"
+    assert static.scheduled[("N", "4", 1)][0].headsign == "Sud"
+
+    static = parse_static(gtfs_zip)
+    assert static.clockwise == {}
+    assert static.line_name("1", 0) == "1"
+    assert _direction_option(static, "1", 0) == "Vers Delta (depuis Alpha)"

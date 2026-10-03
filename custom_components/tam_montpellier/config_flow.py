@@ -47,6 +47,36 @@ from .gtfs_static import StaticData
 _URL_SELECTOR = TextSelector(TextSelectorConfig(type=TextSelectorType.URL))
 
 
+def _rotation(static: StaticData, route_id: str, direction_id: int) -> str | None:
+    """Return the way a circular line runs, None for other lines."""
+    clockwise = static.clockwise.get((route_id, direction_id))
+    if clockwise is None:
+        return None
+    return "sens horaire" if clockwise else "sens antihoraire"
+
+
+def _direction_option(static: StaticData, route_id: str, direction_id: int) -> str:
+    """Label a direction: its destination, or its way round for a circular line.
+
+    Both directions of a circular line start and end at the same stop, so
+    they are told apart by their way round and the stops they pass through:
+    "4a · sens horaire (Rondelet → Albert 1er → Place de l'Europe)".
+    """
+    stops = static.line_stops[(route_id, direction_id)]
+    names = [static.stop_names.get(stop_id, stop_id) for stop_id in stops]
+    if (rotation := _rotation(static, route_id, direction_id)) is None:
+        label = static.direction_label(route_id, direction_id)
+        return f"Vers {label} (depuis {names[0]})"
+    # Three stops spread along the loop, the same ones in both directions,
+    # without their second name.
+    last = len(names) - 1
+    via = " → ".join(
+        names[index].split(" - ")[0]
+        for index in (last // 4, last // 2, last - last // 4)
+    )
+    return f"{static.line_name(route_id, direction_id)} · {rotation} ({via})"
+
+
 class TamConfigFlow(ConfigFlow, domain=DOMAIN):
     """Handle the setup of the TaM Montpellier integration."""
 
@@ -160,11 +190,10 @@ class StopSubentryFlowHandler(ConfigSubentryFlow):
         for (route_id, direction_id), stops in sorted(static.line_stops.items()):
             if route_id != self._route_id or not stops:
                 continue
-            first = static.stop_names.get(stops[0], stops[0])
-            label = static.direction_label(route_id, direction_id)
             options.append(
                 SelectOptionDict(
-                    value=str(direction_id), label=f"Vers {label} (depuis {first})"
+                    value=str(direction_id),
+                    label=_direction_option(static, route_id, direction_id),
                 )
             )
         return self.async_show_form(
@@ -194,12 +223,16 @@ class StopSubentryFlowHandler(ConfigSubentryFlow):
                 for subentry in self._get_entry().subentries.values()
             ):
                 return self.async_abort(reason="already_configured")
-            direction = static.direction_label(self._route_id, self._direction_id)
+            stop_name = static.stop_names.get(stop_id, stop_id)
+            line = f"Tram {static.line_name(self._route_id, self._direction_id)}"
+            if (self._route_id, self._direction_id) in static.clockwise:
+                # Circular line: its name tells the direction, "Tram 4a".
+                title = f"{stop_name} ({line})"
+            else:
+                direction = static.direction_label(self._route_id, self._direction_id)
+                title = f"{stop_name} → {direction} ({line})"
             return self.async_create_entry(
-                title=(
-                    f"{static.stop_names.get(stop_id, stop_id)} → {direction}"
-                    f" ({self._line_name})"
-                ),
+                title=title,
                 data={
                     CONF_ROUTE_ID: self._route_id,
                     CONF_DIRECTION_ID: self._direction_id,
@@ -230,10 +263,21 @@ class StopSubentryFlowHandler(ConfigSubentryFlow):
                 }
             ),
             description_placeholders={
-                "line": self._line_name,
-                "direction": static.direction_label(self._route_id, self._direction_id),
+                "line": (
+                    f"Tram {static.line_name(self._route_id, self._direction_id)}"
+                ),
+                "direction": self._direction_name,
             },
         )
+
+    @property
+    def _direction_name(self) -> str:
+        """Destination of the direction, with its way round on a circular line."""
+        static = self._static
+        label = static.direction_label(self._route_id, self._direction_id)
+        if rotation := _rotation(static, self._route_id, self._direction_id):
+            return f"{label} ({rotation})"
+        return label
 
     @property
     def _line_name(self) -> str:

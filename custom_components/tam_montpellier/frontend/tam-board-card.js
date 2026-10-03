@@ -6,7 +6,7 @@
  * visual editor; the card finds that stop's sensors by itself.
  */
 
-const CARD_VERSION = "0.4.1";
+const CARD_VERSION = "0.5.0";
 const DOMAIN = "tam_montpellier";
 
 const STYLES = `
@@ -16,9 +16,11 @@ ha-card { overflow: hidden; }
 .band { position: relative; overflow: hidden; display: flex; align-items: center; gap: 12px; padding: 14px 16px; background: var(--line); color: var(--ink); }
 .motif { position: absolute; right: -6px; top: 0; height: 100%; opacity: .22; pointer-events: none; }
 .pill { flex: none; width: 40px; height: 40px; border-radius: 50%; background: var(--ink); color: var(--line); display: grid; place-items: center; font-size: 22px; font-weight: 800; }
+.pill.long { font-size: 19px; letter-spacing: -.5px; }
 .where { min-width: 0; position: relative; }
 .stop { font-size: 19px; font-weight: 700; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .dir { font-size: 13px; opacity: .9; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.loop { display: block; height: 22px; width: auto; margin: 2px 0 -6px; }
 .next { display: flex; align-items: center; gap: 16px; padding: 16px 16px 12px; }
 .count { flex: none; min-width: 92px; min-height: 52px; display: flex; align-items: baseline; gap: 4px; color: var(--accent); }
 .count b { font-size: 52px; line-height: 1; font-weight: 800; font-variant-numeric: tabular-nums; }
@@ -215,12 +217,27 @@ const motifCache = new Map();
 
 /** Watermark of a line, drawn in `ink` over its `bg` colour. */
 function lineMotif(line, ink, bg) {
+  line = line.replace(/[a-z]$/, ''); // "4a" and "4b" are the two ways of line 4.
   if (!MOTIFS[line]) return '';
   const key = `${line}|${ink}|${bg}`;
   if (!motifCache.has(key)) {
     motifCache.set(key, `<svg class="motif" viewBox="0 0 150 80" aria-hidden="true">${MOTIFS[line](ink, bg)}</svg>`);
   }
   return motifCache.get(key);
+}
+
+/**
+ * Way round of a circular line, drawn like a line map: a track with an arrow
+ * on each side and the terminus at the bottom left.
+ */
+function loopIcon(clockwise, ink, bg) {
+  const arrow = (x, y, angle) =>
+    `<path d="M3.9 0L-2.85 3.9V-3.9Z" fill="${ink}" transform="translate(${x} ${y}) rotate(${angle})"/>`;
+  const label = clockwise ? 'Sens horaire' : 'Sens antihoraire';
+  return `<svg class="loop" viewBox="0 0 40 24" role="img" aria-label="${label}"><title>${label}</title>
+    <rect x="2" y="3" width="36" height="18" rx="9" fill="none" stroke="${ink}" stroke-width="2.4"/>
+    ${arrow(21, 3, clockwise ? 0 : 180)}${arrow(19, 21, clockwise ? 180 : 0)}
+    <circle cx="10" cy="21" r="2.6" fill="${bg}" stroke="${ink}" stroke-width="1.6"/></svg>`;
 }
 
 function render(entity, states, hass, variables, alertEntity) {
@@ -230,7 +247,7 @@ function render(entity, states, hass, variables, alertEntity) {
   const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   const color = a.line_color || '#005CA9';
   const ink = a.line_text_color || '#FFFFFF';
-  const line = a.line || '?';
+  const line = String(a.line || '?');
   // Line colors used as text are adjusted to stay readable on the card:
   // light ones (T3 lime) darkened on light themes, dark ones (T1 blue, T4
   // brown, T5 green) lightened on dark themes.
@@ -248,6 +265,10 @@ function render(entity, states, hass, variables, alertEntity) {
   const deps = Array.isArray(a.departures) ? a.departures : [];
 
   const motif = lineMotif(line, ink, color);
+  // Circular lines show their way round instead of a destination.
+  const way = typeof a.clockwise === 'boolean' && !variables.direction
+    ? loopIcon(a.clockwise, ink, color)
+    : `<div class="dir">Direction ${esc(towards)}</div>`;
 
   const sources = {
     realtime: '<span class="src live"><i></i>Temps réel</span>',
@@ -283,8 +304,8 @@ function render(entity, states, hass, variables, alertEntity) {
 
   return `<div class="tam" style="--line:${color};--ink:${ink};--accent:${accent}">
     <div class="band">${motif}
-      <div class="pill">${esc(line)}</div>
-      <div class="where"><div class="stop">${esc(stop)}</div><div class="dir">Direction ${esc(towards)}</div></div>
+      <div class="pill${line.length > 1 ? ' long' : ''}">${esc(line)}</div>
+      <div class="where"><div class="stop">${esc(stop)}</div>${way}</div>
     </div>
     ${next}
     ${chips ? `<div class="chips">${chips}</div>` : ''}

@@ -65,7 +65,14 @@ quand partir.
 | `binary_sensor.…_perturbation` | Allumé quand une alerte trafic TaM en cours concerne la ligne, l'arrêt ou tout le réseau |
 | `sensor.…_message_de_perturbation` | Texte des alertes en cours (séparées par « • »), ou « Aucune perturbation ». Tronqué à 255 caractères, limite de HA ; le texte complet est dans l'attribut `full_message` |
 
-Attributs : `line`, `line_color`, `destination`, `delay` (minutes) et `source`.
+**Ligne 4 circulaire.** Ses deux sens sont présentés comme deux lignes : **4a**
+(sens horaire) et **4b** (sens antihoraire). À l'ajout d'un arrêt, chaque sens
+indique quelques arrêts traversés pour s'y retrouver, et l'appareil est nommé
+par exemple « Corum (Tram 4a) ».
+
+Attributs : `line` (`4a` ou `4b` pour la ligne 4), `line_color`, `destination`,
+`delay` (minutes) et `source`. Sur la ligne 4, `clockwise` indique le sens de
+rotation.
 Le capteur minutes porte aussi `departures`, les 6 prochains passages avec
 leurs minutes restantes, calculées selon le même arrondi.
 
@@ -107,7 +114,7 @@ L'intégration fournit sa propre carte, aux couleurs officielles de chaque
 ligne : bandeau de ligne, compte à rebours en grand, voyant temps réel, trams
 suivants en pastilles et bandeau d'alerte en cas de perturbation. Rien à
 installer en plus. Le bandeau porte en filigrane un motif inspiré de la livrée
-de chaque ligne.
+de chaque ligne ; sur la ligne 4, un pictogramme y indique le sens de rotation.
 
 ![Cartes « afficheur de quai » des cinq lignes de tramway](assets/cartes.png)
 

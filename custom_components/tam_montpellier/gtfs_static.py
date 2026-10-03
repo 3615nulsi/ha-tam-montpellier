@@ -9,7 +9,7 @@ from __future__ import annotations
 from collections import Counter, defaultdict
 from collections.abc import Iterable, Iterator
 import csv
-from dataclasses import dataclass, field, fields
+from dataclasses import dataclass, field, fields, replace
 from datetime import date, datetime, time, timedelta
 import io
 from operator import itemgetter
@@ -80,6 +80,10 @@ class StaticData:
     """trip_id -> (first stop_id, scheduled departure in seconds)."""
     scheduled: dict[StopKey, list[ScheduledStop]] = field(default_factory=dict)
     """Scheduled passages, only for the monitored stops."""
+    clockwise: dict[LineKey, bool] = field(default_factory=dict)
+    """Directions of circular lines: True when running clockwise on the map."""
+    variants: dict[LineKey, str] = field(default_factory=dict)
+    """Letter naming a direction of a circular line, "a" for line "4a"."""
 
     def services_on(self, day: date) -> frozenset[str]:
         """Return the service ids running on a given day."""
@@ -88,6 +92,12 @@ class StaticData:
     def service_day_start(self, day: date) -> datetime:
         """Return the GTFS reference time of a service day ("noon minus 12h")."""
         return datetime.combine(day, time(12), self.timezone) - timedelta(hours=12)
+
+    def line_name(self, route_id: str, direction_id: int) -> str:
+        """Return the name of a line, each direction of a circular one apart."""
+        route = self.routes.get(route_id)
+        name = route.short_name if route else route_id
+        return name + self.variants.get((route_id, direction_id), "")
 
     def direction_label(self, route_id: str, direction_id: int) -> str:
         """Return the label of a direction, falling back to its terminus."""
@@ -194,6 +204,18 @@ def _direction_label(
     if headsigns:
         return headsigns.most_common(1)[0][0]
     return stop_names.get(stops[-1], stops[-1]) if stops else route.short_name
+
+
+def _is_clockwise(
+    stops: list[str], positions: dict[str, tuple[float, float]]
+) -> bool | None:
+    """Tell if a loop runs clockwise on the map, from its signed area."""
+    points = [positions[stop_id] for stop_id in stops if stop_id in positions]
+    area = sum(
+        x1 * y2 - x2 * y1
+        for (x1, y1), (x2, y2) in zip(points, points[1:] + points[:1], strict=True)
+    )
+    return area < 0 if len(points) > 2 and area else None
 
 
 def parse_static(
@@ -327,13 +349,57 @@ def parse_static(
             stop for counter in patterns.values() for p in counter for stop in p
         }
         stop_names: dict[str, str] = {}
+        positions: dict[str, tuple[float, float]] = {}
         for row in _read_csv(archive, "stops.txt"):
             if row["stop_id"] in used_stops:
                 stop_names[row["stop_id"]] = row.get("stop_name", row["stop_id"])
+                try:
+                    positions[row["stop_id"]] = (
+                        float(row["stop_lon"]),
+                        float(row["stop_lat"]),
+                    )
+                except (KeyError, ValueError):
+                    pass
 
     line_stops = {key: _merge_stop_orders(p) for key, p in patterns.items()}
     for stop_list in scheduled.values():
         stop_list.sort(key=lambda item: item.departure)
+    # Circular lines start and end at the same stop, on different platforms.
+    clockwise = {
+        key: rotation
+        for key, stops in line_stops.items()
+        if len(stops) > 2
+        and stop_names.get(stops[0]) == stop_names.get(stops[-1])
+        and (rotation := _is_clockwise(stops, positions)) is not None
+    }
+
+    directions = {
+        key: _direction_label(routes[key[0]], stops, stop_names, headsigns[key])
+        for key, stops in line_stops.items()
+    }
+
+    # Each direction of a circular line is presented as a line of its own,
+    # named after the letter ending its headsigns: "Garcia Lorca A" runs on
+    # line "4a". The letter is then left out of the destinations.
+    suffixes: dict[LineKey, str] = {}
+    for key in clockwise:
+        terminus = stop_names.get(line_stops[key][-1], "")
+        letter = directions[key].removeprefix(terminus).strip()
+        if directions[key].startswith(terminus) and len(letter) == 1:
+            suffixes[key] = f" {letter}"
+            directions[key] = terminus
+    if suffixes:
+        for trip_id, trip in trips.items():
+            if suffix := suffixes.get((trip.route_id, trip.direction_id)):
+                trips[trip_id] = replace(
+                    trip, headsign=trip.headsign.removesuffix(suffix)
+                )
+        for stop_key, stop_list in scheduled.items():
+            if suffix := suffixes.get(stop_key[1:]):
+                stop_list[:] = [
+                    replace(item, headsign=item.headsign.removesuffix(suffix))
+                    for item in stop_list
+                ]
 
     return StaticData(
         timezone=timezone,
@@ -346,11 +412,10 @@ def parse_static(
             trip_id: (stop_id, departure)
             for trip_id, (_seq, stop_id, departure) in trip_starts.items()
         },
-        directions={
-            key: _direction_label(routes[key[0]], stops, stop_names, headsigns[key])
-            for key, stops in line_stops.items()
-        },
+        directions=directions,
         scheduled=dict(scheduled),
+        clockwise=clockwise,
+        variants={key: suffix.strip().lower() for key, suffix in suffixes.items()},
     )
 
 

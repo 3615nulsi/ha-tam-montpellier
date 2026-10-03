@@ -96,6 +96,9 @@
           },
           "delay": {
             "name": "Delay (min)"
+          },
+          "clockwise": {
+            "name": "Clockwise"
           }
         }
       },
@@ -124,6 +127,9 @@
           },
           "delay": {
             "name": "Delay (min)"
+          },
+          "clockwise": {
+            "name": "Clockwise"
           }
         }
       },
@@ -152,6 +158,9 @@
           },
           "delay": {
             "name": "Delay (min)"
+          },
+          "clockwise": {
+            "name": "Clockwise"
           }
         }
       },
@@ -180,6 +189,9 @@
           },
           "delay": {
             "name": "Delay (min)"
+          },
+          "clockwise": {
+            "name": "Clockwise"
           },
           "departures": {
             "name": "Upcoming departures"
