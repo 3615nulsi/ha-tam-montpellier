@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from collections import Counter, defaultdict
 from collections.abc import Iterable, Iterator
+from contextlib import suppress
 import csv
 from dataclasses import dataclass, field, fields, replace
 from datetime import date, datetime, time, timedelta
@@ -353,13 +354,11 @@ def parse_static(
         for row in _read_csv(archive, "stops.txt"):
             if row["stop_id"] in used_stops:
                 stop_names[row["stop_id"]] = row.get("stop_name", row["stop_id"])
-                try:
+                with suppress(KeyError, ValueError):
                     positions[row["stop_id"]] = (
                         float(row["stop_lon"]),
                         float(row["stop_lat"]),
                     )
-                except (KeyError, ValueError):
-                    pass
 
     line_stops = {key: _merge_stop_orders(p) for key, p in patterns.items()}
     for stop_list in scheduled.values():
