@@ -105,7 +105,7 @@ def build_trip_updates(*trips: dict) -> bytes:
 
     Each trip is a dict with ``trip_id``, ``route_id``, ``direction_id`` and
     ``stops``: a list of ``(stop_id, datetime | None, delay | None, skipped)``.
-    ``canceled=True`` marks a canceled trip.
+    ``canceled=True`` marks a canceled trip, ``vehicle_id`` names its tram.
     """
     feed = gtfs_realtime_pb2.FeedMessage()
     feed.header.gtfs_realtime_version = "2.0"
@@ -117,6 +117,8 @@ def build_trip_updates(*trips: dict) -> bytes:
         update.trip.trip_id = trip["trip_id"]
         update.trip.route_id = trip.get("route_id", "1")
         update.trip.direction_id = trip.get("direction_id", 0)
+        if "vehicle_id" in trip:
+            update.vehicle.id = trip["vehicle_id"]
         if trip.get("canceled"):
             update.trip.schedule_relationship = (
                 gtfs_realtime_pb2.TripDescriptor.CANCELED
@@ -135,6 +137,27 @@ def build_trip_updates(*trips: dict) -> bytes:
             if delay is not None:
                 stu.arrival.delay = delay
                 stu.departure.delay = delay
+    return feed.SerializeToString()
+
+
+def build_vehicle_positions(*vehicles: tuple[str, str, int | None]) -> bytes:
+    """Build a GTFS-RT VehiclePosition feed.
+
+    Each vehicle is a ``(vehicle_id, route_id, direction_id)`` tuple.
+    """
+    feed = gtfs_realtime_pb2.FeedMessage()
+    feed.header.gtfs_realtime_version = "2.0"
+    feed.header.timestamp = int(paris(8, 0).timestamp())
+    for vehicle_id, route_id, direction_id in vehicles:
+        entity = feed.entity.add()
+        entity.id = vehicle_id
+        entity.vehicle.vehicle.id = vehicle_id
+        entity.vehicle.vehicle.label = vehicle_id
+        entity.vehicle.trip.route_id = route_id
+        if direction_id is not None:
+            entity.vehicle.trip.direction_id = direction_id
+        entity.vehicle.position.latitude = 43.6
+        entity.vehicle.position.longitude = 3.87
     return feed.SerializeToString()
 
 

@@ -23,6 +23,9 @@
       },
       "alert_message": {
         "default": "mdi:message-alert-outline"
+      },
+      "vehicles_in_service": {
+        "default": "mdi:tram"
       }
     }
   }

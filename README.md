@@ -91,6 +91,22 @@ Le capteur **Perturbation** expose `message` (le texte de la première alerte) e
 leur code interne TaM (`title`). Si le flux d'alertes est momentanément
 injoignable, les dernières alertes connues sont conservées.
 
+### Rames en service
+
+Chaque ligne est aussi un appareil (« Tram 1 », …, « Tram 4a », « Tram 4b »)
+avec un capteur `sensor.tram_1_rames_en_service` : le nombre de rames en
+service sur la ligne, d'après les numéros de rame que donnent les flux temps
+réel. Ses statistiques retracent la journée de la ligne.
+
+Une rame qui attend au terminus peut disparaître des flux jusqu'à un quart
+d'heure : elle reste comptée **20 minutes** après sa dernière apparition. Le
+compte est ainsi stable, et une rame qui rentre au dépôt en sort avec ce
+délai. Après un redémarrage, le compte remonte pendant ce même délai.
+
+Attributs : `running`, les rames présentes dans les flux à l'instant même, et
+`vehicles`, les numéros des rames comptées. Sur la ligne 4, chaque sens (4a,
+4b) est compté à part.
+
 ## Exemples
 
 ### Tableau de départs (carte Markdown)
@@ -112,9 +128,10 @@ content: >
 
 L'intégration fournit sa propre carte, aux couleurs officielles de chaque
 ligne : bandeau de ligne, compte à rebours en grand, voyant temps réel, trams
-suivants en pastilles et bandeau d'alerte en cas de perturbation. Rien à
-installer en plus. Le bandeau porte en filigrane un motif inspiré de la livrée
-de chaque ligne ; sur la ligne 4, un pictogramme y indique le sens de rotation.
+suivants en pastilles, nombre de rames en service sur la ligne et bandeau
+d'alerte en cas de perturbation. Rien à installer en plus. Le bandeau porte en
+filigrane un motif inspiré de la livrée de chaque ligne ; sur la ligne 4, un
+pictogramme y indique le sens de rotation.
 
 ![Cartes « afficheur de quai » des cinq lignes de tramway](assets/cartes.png)
 
@@ -166,7 +183,7 @@ actions:
 
 ## Fonctionnement
 
-- Les flux temps réel (GTFS-RT `TripUpdate` et `Alert`) sont interrogés toutes les 30 secondes.
+- Les flux temps réel (GTFS-RT `TripUpdate`, `VehiclePosition` et `Alert`) sont interrogés toutes les 30 secondes.
 - Les horaires théoriques (GTFS, environ 8 Mo) sont téléchargés au démarrage puis
   chaque nuit à 3 h 30, et mis en cache dans `.storage/tam_montpellier/` avec le
   résultat de leur analyse : un redémarrage ne les analyse pas à nouveau. Seul le

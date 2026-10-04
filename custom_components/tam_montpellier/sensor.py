@@ -1,5 +1,7 @@
 """Sensors exposing the next tram departures at the monitored stops.
 
+Each line also has a sensor counting its trams in service.
+
 Minutes are always rounded down, so that "2 min" guarantees at least two
 minutes before the tram: someone leaving when the sensor says they have time
 arrives early rather than late. The minutes sensor is rewritten at the exact
@@ -23,6 +25,7 @@ from homeassistant.components.sensor import (
     SensorDeviceClass,
     SensorEntity,
     SensorEntityDescription,
+    SensorStateClass,
 )
 from homeassistant.config_entries import ConfigSubentry
 from homeassistant.const import UnitOfTime
@@ -34,7 +37,8 @@ from homeassistant.util import dt as dt_util
 from .const import SUBENTRY_TYPE_STOP
 from .coordinator import TamConfigEntry, TamCoordinator
 from .departures import Departure
-from .entity import TamStopEntity
+from .entity import TamLineEntity, TamStopEntity
+from .fleet import fleet_lines
 
 PARALLEL_UPDATES = 0
 
@@ -107,6 +111,12 @@ ALERT_MESSAGE_DESCRIPTION = SensorEntityDescription(
     translation_key="alert_message",
 )
 
+VEHICLES_DESCRIPTION = SensorEntityDescription(
+    key="vehicles_in_service",
+    translation_key="vehicles_in_service",
+    state_class=SensorStateClass.MEASUREMENT,
+)
+
 # Home Assistant rejects states longer than this.
 _MAX_STATE_LENGTH = 255
 _ALERT_SEPARATOR = " • "
@@ -118,8 +128,12 @@ async def async_setup_entry(
     entry: TamConfigEntry,
     async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
-    """Set up the sensors of each monitored stop."""
+    """Set up the sensors of each line and of each monitored stop."""
     coordinator = entry.runtime_data
+    async_add_entities(
+        TamVehiclesSensor(coordinator, line, VEHICLES_DESCRIPTION)
+        for line in fleet_lines(coordinator.static)
+    )
     for subentry in entry.subentries.values():
         if subentry.subentry_type != SUBENTRY_TYPE_STOP:
             continue
@@ -291,4 +305,36 @@ class TamAlertMessageSensor(TamStopEntity, SensorEntity):
             "line": self._line,
             "alert_count": len(self._active_alerts()),
             "full_message": self._message(),
+        }
+
+
+class TamVehiclesSensor(TamLineEntity, SensorEntity):
+    """Number of trams in service on a line.
+
+    Trams are counted for a while after they were last seen in the real-time
+    feeds, see the fleet module; ``running`` is the instant count.
+    """
+
+    _unrecorded_attributes = frozenset({"vehicles", "line_color", "line_text_color"})
+
+    @property
+    def available(self) -> bool:
+        """Return whether a feed naming the trams answered."""
+        return super().available and self.coordinator.fleet_available
+
+    @property
+    def native_value(self) -> int:
+        """Return the number of trams in service."""
+        return len(self.coordinator.fleet.in_service(self._fleet_line))
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return the line, the instant count and the fleet numbers."""
+        fleet = self.coordinator.fleet
+        return {
+            "line": self._line,
+            "line_color": f"#{self._route.color}" if self._route else None,
+            "line_text_color": f"#{self._route.text_color}" if self._route else None,
+            "running": fleet.running(self._fleet_line),
+            "vehicles": fleet.in_service(self._fleet_line),
         }

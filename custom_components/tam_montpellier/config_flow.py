@@ -34,9 +34,11 @@ from .const import (
     CONF_ROUTE_ID,
     CONF_STOP_ID,
     CONF_TRIP_UPDATES_URL,
+    CONF_VEHICLE_POSITIONS_URL,
     DEFAULT_ALERTS_URL,
     DEFAULT_GTFS_URL,
     DEFAULT_TRIP_UPDATES_URL,
+    DEFAULT_VEHICLE_POSITIONS_URL,
     DOMAIN,
     SUBENTRY_TYPE_STOP,
 )
@@ -116,6 +118,7 @@ class TamConfigFlow(ConfigFlow, domain=DOMAIN):
                         vol.Required(CONF_TRIP_UPDATES_URL): _URL_SELECTOR,
                         vol.Required(CONF_GTFS_URL): _URL_SELECTOR,
                         vol.Required(CONF_ALERTS_URL): _URL_SELECTOR,
+                        vol.Required(CONF_VEHICLE_POSITIONS_URL): _URL_SELECTOR,
                     }
                 ),
                 user_input
@@ -123,6 +126,7 @@ class TamConfigFlow(ConfigFlow, domain=DOMAIN):
                     CONF_TRIP_UPDATES_URL: DEFAULT_TRIP_UPDATES_URL,
                     CONF_GTFS_URL: DEFAULT_GTFS_URL,
                     CONF_ALERTS_URL: DEFAULT_ALERTS_URL,
+                    CONF_VEHICLE_POSITIONS_URL: DEFAULT_VEHICLE_POSITIONS_URL,
                 },
             ),
             errors=errors,

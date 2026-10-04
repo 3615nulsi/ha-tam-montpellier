@@ -24,8 +24,11 @@ from .const import (
     CONF_ROUTE_ID,
     CONF_STOP_ID,
     CONF_TRIP_UPDATES_URL,
+    CONF_VEHICLE_POSITIONS_URL,
     DEFAULT_ALERTS_URL,
+    DEFAULT_VEHICLE_POSITIONS_URL,
     DOMAIN,
+    FLEET_MEMORY,
     GTFS_DOWNLOAD_TIMEOUT,
     GTFS_MAX_AGE,
     MAX_DEPARTURES,
@@ -38,6 +41,12 @@ from .departures import (
     RealtimeSnapshot,
     compute_departures,
     parse_trip_updates,
+)
+from .fleet import (
+    FleetTracker,
+    Sighting,
+    parse_vehicle_positions,
+    trip_update_vehicles,
 )
 from .gtfs_static import StaticData, StopKey, load_static
 
@@ -82,8 +91,13 @@ class TamCoordinator(DataUpdateCoordinator[dict[StopKey, list[Departure]]]):
         self._static_cache_path = self._gtfs_path.with_name("gtfs_static.pickle")
         self._realtime_available = True
         self._alerts_available = True
+        self._positions_available = True
         self.alerts: list[Alert] = []
         """Last known service alerts, kept when the alert feed fails."""
+        self.fleet = FleetTracker(FLEET_MEMORY)
+        """Trams in service, seen in the real-time feeds."""
+        self.fleet_available = False
+        """Whether a feed naming the trams answered at the last update."""
         self.stop_keys: set[StopKey] = {
             stop_key_from_data(subentry.data)
             for subentry in entry.subentries.values()
@@ -135,6 +149,7 @@ class TamCoordinator(DataUpdateCoordinator[dict[StopKey, list[Departure]]]):
         scheduled times instead of making the entities unavailable.
         """
         await self._async_update_alerts()
+        positions = await self._async_fetch_vehicle_positions()
         snapshot = RealtimeSnapshot()
         try:
             payload = await async_fetch_feed(
@@ -147,6 +162,7 @@ class TamCoordinator(DataUpdateCoordinator[dict[StopKey, list[Departure]]]):
             self._set_realtime_available(False, err)
         else:
             self._set_realtime_available(True, None)
+        self._update_fleet(snapshot, positions)
         return await self.hass.async_add_executor_job(
             self._compute_departures, snapshot, dt_util.now()
         )
@@ -165,6 +181,41 @@ class TamCoordinator(DataUpdateCoordinator[dict[StopKey, list[Departure]]]):
         if not self._alerts_available:
             _LOGGER.info("TaM alert feed is available again")
             self._alerts_available = True
+
+    async def _async_fetch_vehicle_positions(self) -> dict[str, Sighting] | None:
+        """Fetch the trams with a known position, None when the feed fails."""
+        url = self.config_entry.data.get(
+            CONF_VEHICLE_POSITIONS_URL, DEFAULT_VEHICLE_POSITIONS_URL
+        )
+        try:
+            payload = await async_fetch_feed(self.hass, url)
+            positions = await self.hass.async_add_executor_job(
+                parse_vehicle_positions, payload, set(self.static.routes)
+            )
+        except (ClientError, TimeoutError, DecodeError) as err:
+            if self._positions_available:
+                _LOGGER.warning("TaM vehicle position feed unavailable: %s", err)
+                self._positions_available = False
+            return None
+        if not self._positions_available:
+            _LOGGER.info("TaM vehicle position feed is available again")
+            self._positions_available = True
+        return positions
+
+    def _update_fleet(
+        self, snapshot: RealtimeSnapshot, positions: dict[str, Sighting] | None
+    ) -> None:
+        """Record the trams named by the feeds that answered.
+
+        Positions are preferred: they tell the trip a tram is running, while
+        trip updates may already name its next one.
+        """
+        self.fleet_available = self._realtime_available or positions is not None
+        if not self.fleet_available:
+            return
+        sightings = trip_update_vehicles(snapshot, self.static)
+        sightings.update(positions or {})
+        self.fleet.update(sightings, dt_util.utcnow().timestamp())
 
     def _compute_departures(
         self, snapshot: RealtimeSnapshot, now: datetime

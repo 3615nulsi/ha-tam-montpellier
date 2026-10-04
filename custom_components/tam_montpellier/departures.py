@@ -79,6 +79,8 @@ class RealtimeTrip:
     """stop_id -> (POSIX timestamp, delay in seconds)"""
     skipped: set[str] = field(default_factory=set)
     last_stop_id: str | None = None
+    vehicle_id: str | None = None
+    """Fleet number of the tram running the trip, when assigned."""
 
 
 @dataclass(slots=True)
@@ -114,6 +116,7 @@ def parse_trip_updates(
             direction_id=(
                 descriptor.direction_id if descriptor.HasField("direction_id") else None
             ),
+            vehicle_id=update.vehicle.id or None,
         )
         last_time = 0
         for stu in update.stop_time_update:

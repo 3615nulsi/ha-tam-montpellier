@@ -6,7 +6,7 @@
  * visual editor; the card finds that stop's sensors by itself.
  */
 
-const CARD_VERSION = "0.5.0";
+const CARD_VERSION = "0.6.0";
 const DOMAIN = "tam_montpellier";
 
 const STYLES = `
@@ -21,7 +21,7 @@ ha-card { overflow: hidden; }
 .stop { font-size: 19px; font-weight: 700; line-height: 1.2; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .dir { font-size: 13px; opacity: .9; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .loop { display: block; height: 22px; width: auto; margin: 2px 0 -6px; }
-.next { display: flex; align-items: center; gap: 16px; padding: 16px 16px 12px; }
+.next { display: flex; align-items: center; gap: 16px; padding: 16px 16px 12px; container-type: inline-size; }
 .count { flex: none; min-width: 92px; min-height: 52px; display: flex; align-items: baseline; gap: 4px; color: var(--accent); }
 .count b { font-size: 52px; line-height: 1; font-weight: 800; font-variant-numeric: tabular-nums; }
 .count span { font-size: 17px; font-weight: 700; }
@@ -33,6 +33,9 @@ ha-card { overflow: hidden; }
 .src.live i { width: 8px; height: 8px; border-radius: 50%; background: #2EAD4B; box-shadow: 0 0 0 0 rgba(46,173,75,.6); animation: tam-pulse 2s infinite; }
 .src.sched, .src.est { padding: 1px 7px; border-radius: 99px; border: 1px solid var(--divider-color); }
 .late { color: #D9480F; font-weight: 700; }
+.fleet::before { content: "·"; margin-right: 8px; }
+/* Too narrow to follow the source on the same line: a line of its own. */
+@container (max-width: 399px) { .fleet { flex-basis: 100%; } .fleet::before { display: none; } }
 .none { padding: 20px 16px; color: var(--secondary-text-color); font-size: 15px; }
 .chips { display: grid; grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); gap: 8px; padding: 0 16px 16px; }
 .chip { border-radius: 10px; padding: 7px 10px; background: color-mix(in srgb, var(--line) 12%, transparent); border-left: 3px solid var(--line); min-width: 0; }
@@ -46,24 +49,33 @@ ha-card { overflow: hidden; }
 @keyframes tam-blink { 50% { opacity: .45; } }
 `;
 
-/** Sensors of a monitored stop, found through its device. */
+/**
+ * Sensors of a monitored stop, found through its device, and the sensors
+ * counting the trams of each line, by line name.
+ */
 function stopEntities(hass, deviceId) {
-  const result = { minutes: undefined, alert: undefined };
+  const result = { minutes: undefined, alert: undefined, fleet: {} };
   for (const entry of Object.values(hass.entities || {})) {
-    if (entry.device_id !== deviceId || entry.platform !== DOMAIN) continue;
+    if (entry.platform !== DOMAIN) continue;
     const state = hass.states[entry.entity_id];
     if (!state) continue;
+    if (Array.isArray(state.attributes.vehicles)) {
+      result.fleet[String(state.attributes.line)] = entry.entity_id;
+      continue;
+    }
+    if (!deviceId || entry.device_id !== deviceId) continue;
     if ("departures" in state.attributes) result.minutes = entry.entity_id;
     else if ("alert_count" in state.attributes) result.alert = entry.entity_id;
   }
   return result;
 }
 
-/** Devices (monitored stops) of the integration. */
+/** Devices of the monitored stops, the lines being devices too. */
 function stopDevices(hass) {
   const ids = new Set(
     Object.values(hass.entities || {})
-      .filter((entry) => entry.platform === DOMAIN && entry.device_id)
+      .filter((entry) => entry.platform === DOMAIN && entry.device_id
+        && "departures" in (hass.states[entry.entity_id]?.attributes || {}))
       .map((entry) => entry.device_id),
   );
   return [...ids].map((id) => hass.devices?.[id]).filter(Boolean);
@@ -240,7 +252,7 @@ function loopIcon(clockwise, ink, bg) {
     <circle cx="10" cy="21" r="2.6" fill="${bg}" stroke="${ink}" stroke-width="1.6"/></svg>`;
 }
 
-function render(entity, states, hass, variables, alertEntity) {
+function render(entity, states, hass, variables, alertEntity, fleetEntity) {
   const e = entity;
   if (!e) return '<div class="tam empty">Capteur introuvable</div>';
   const a = e.attributes;
@@ -276,6 +288,10 @@ function render(entity, states, hass, variables, alertEntity) {
     scheduled: '<span class="src sched">Théorique</span>',
   };
   const delay = (d) => (d.delay >= 2 ? `<span class="late">+${d.delay} min</span>` : '');
+  const trams = fleetEntity ? Number(states[fleetEntity]?.state) : NaN;
+  const fleet = trams > 0
+    ? `<span class="fleet">${trams} rame${trams > 1 ? 's' : ''} en service</span>`
+    : '';
 
   let next;
   const first = deps[0];
@@ -288,7 +304,7 @@ function render(entity, states, hass, variables, alertEntity) {
       : `<div class="count"><b>${minutes}</b><span>min</span></div>`;
     next = `<div class="next">${count}<div class="info">
         <div class="dest">${esc(first.destination)}</div>
-        <div class="meta">${sources[first.source] || ''}${delay(first)}</div>
+        <div class="meta">${sources[first.source] || ''}${delay(first)}${fleet}</div>
       </div></div>`;
   }
 
@@ -328,21 +344,21 @@ class TamBoardCard extends HTMLElement {
     let minutes = this._config.entity;
     let alert = this._config.alert_entity;
     const deviceId = this._config.device || hass.entities?.[minutes]?.device_id;
-    if (deviceId) {
-      const found = stopEntities(hass, deviceId);
-      minutes = minutes || found.minutes;
-      alert = alert || found.alert;
-    }
+    const found = stopEntities(hass, deviceId);
+    minutes = minutes || found.minutes;
+    alert = alert || found.alert;
     const entity = minutes ? hass.states[minutes] : undefined;
+    const fleet = entity ? found.fleet[String(entity.attributes.line)] : undefined;
     const alertState = alert ? hass.states[alert] : undefined;
-    const signature = [entity?.last_updated, alertState?.last_updated, hass.themes?.darkMode].join("|");
+    const fleetState = fleet ? hass.states[fleet] : undefined;
+    const signature = [entity?.last_updated, alertState?.last_updated, fleetState?.state, hass.themes?.darkMode].join("|");
     if (signature === this._signature) return;
     this._signature = signature;
     this._minutes = minutes;
-    this._render(entity, alert);
+    this._render(entity, alert, fleet);
   }
 
-  _render(entity, alert) {
+  _render(entity, alert, fleet) {
     if (!this.shadowRoot) {
       this.attachShadow({ mode: "open" });
       this.shadowRoot.innerHTML = `<style>${STYLES}</style><ha-card></ha-card>`;
@@ -355,7 +371,7 @@ class TamBoardCard extends HTMLElement {
     }
     const variables = { stop_name: this._config.name, direction: this._config.direction };
     this.shadowRoot.querySelector("ha-card").innerHTML =
-      render(entity, this._hass.states, this._hass, variables, alert);
+      render(entity, this._hass.states, this._hass, variables, alert, fleet);
   }
 
   getCardSize() { return 4; }
@@ -402,7 +418,8 @@ class TamBoardCardEditor extends HTMLElement {
     this._form.hass = this._hass;
     this._form.data = this._config;
     this._form.schema = [
-      { name: "device", required: true, selector: { device: { integration: DOMAIN } } },
+      // Stops have a disruption binary sensor, lines do not.
+      { name: "device", required: true, selector: { device: { integration: DOMAIN, entity: { domain: "binary_sensor" } } } },
       { name: "name", selector: { text: {} } },
       { name: "direction", selector: { text: {} } },
     ];

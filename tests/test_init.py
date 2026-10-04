@@ -22,18 +22,27 @@ from custom_components.tam_montpellier.const import (
     CONF_ROUTE_ID,
     CONF_STOP_ID,
     CONF_TRIP_UPDATES_URL,
+    CONF_VEHICLE_POSITIONS_URL,
     DEFAULT_ALERTS_URL,
     DEFAULT_GTFS_URL,
     DEFAULT_TRIP_UPDATES_URL,
+    DEFAULT_VEHICLE_POSITIONS_URL,
     DOMAIN,
     SUBENTRY_TYPE_STOP,
 )
 from homeassistant.config_entries import ConfigEntryState, ConfigSubentryData
 from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
-from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers import device_registry as dr, entity_registry as er
 
-from .conftest import build_alerts, build_gtfs, build_trip_updates, paris, trip_id
+from .conftest import (
+    build_alerts,
+    build_gtfs,
+    build_trip_updates,
+    build_vehicle_positions,
+    paris,
+    trip_id,
+)
 
 pytestmark = pytest.mark.usefixtures("enable_custom_integrations", "isolated_storage")
 
@@ -41,12 +50,14 @@ ENTRY_DATA = {
     CONF_TRIP_UPDATES_URL: DEFAULT_TRIP_UPDATES_URL,
     CONF_GTFS_URL: DEFAULT_GTFS_URL,
     CONF_ALERTS_URL: DEFAULT_ALERTS_URL,
+    CONF_VEHICLE_POSITIONS_URL: DEFAULT_VEHICLE_POSITIONS_URL,
 }
 STOP_DATA = {CONF_ROUTE_ID: "1", CONF_DIRECTION_ID: 0, CONF_STOP_ID: "B"}
 NEXT_SENSOR = "sensor.bravo_delta_tram_1_next_departure"
 MINUTES_SENSOR = "sensor.bravo_delta_tram_1_minutes_to_next_departure"
 DISRUPTION_SENSOR = "binary_sensor.bravo_delta_tram_1_disruption"
 ALERT_MESSAGE_SENSOR = "sensor.bravo_delta_tram_1_disruption_message"
+VEHICLES_SENSOR = "sensor.tram_1_trams_in_service"
 
 
 @pytest.fixture(name="mock_feeds")
@@ -54,6 +65,7 @@ def mock_feeds_fixture(aioclient_mock: AiohttpClientMocker) -> AiohttpClientMock
     """Serve the synthetic feeds."""
     aioclient_mock.get(DEFAULT_GTFS_URL, content=build_gtfs())
     aioclient_mock.get(DEFAULT_ALERTS_URL, content=build_alerts())
+    aioclient_mock.get(DEFAULT_VEHICLE_POSITIONS_URL, content=build_vehicle_positions())
     aioclient_mock.get(
         DEFAULT_TRIP_UPDATES_URL,
         content=build_trip_updates(
@@ -224,6 +236,7 @@ async def test_realtime_outage_falls_back_to_schedule(
     aioclient_mock.get(DEFAULT_GTFS_URL, content=build_gtfs())
     aioclient_mock.get(DEFAULT_ALERTS_URL, exc=ClientError())
     aioclient_mock.get(DEFAULT_TRIP_UPDATES_URL, exc=ClientError())
+    aioclient_mock.get(DEFAULT_VEHICLE_POSITIONS_URL, exc=ClientError())
     entry = _entry()
     entry.add_to_hass(hass)
     assert await hass.config_entries.async_setup(entry.entry_id)
@@ -232,6 +245,8 @@ async def test_realtime_outage_falls_back_to_schedule(
     state = hass.states.get(NEXT_SENSOR)
     assert state.state == "2026-09-23T06:13:00+00:00"
     assert state.attributes["source"] == "scheduled"
+    # Trams in service cannot be counted without any real-time feed.
+    assert hass.states.get(VEHICLES_SENSOR).state == "unavailable"
 
 
 async def test_gtfs_unavailable(
@@ -339,6 +354,7 @@ async def test_disruption_sensor(
     freezer.move_to(paris(8, 12))
     aioclient_mock.get(DEFAULT_GTFS_URL, content=build_gtfs())
     aioclient_mock.get(DEFAULT_TRIP_UPDATES_URL, content=build_trip_updates())
+    aioclient_mock.get(DEFAULT_VEHICLE_POSITIONS_URL, content=build_vehicle_positions())
     aioclient_mock.get(
         DEFAULT_ALERTS_URL,
         content=build_alerts(
@@ -388,6 +404,7 @@ async def test_disruption_sensor(
     aioclient_mock.clear_requests()
     aioclient_mock.get(DEFAULT_GTFS_URL, content=build_gtfs())
     aioclient_mock.get(DEFAULT_TRIP_UPDATES_URL, content=build_trip_updates())
+    aioclient_mock.get(DEFAULT_VEHICLE_POSITIONS_URL, content=build_vehicle_positions())
     aioclient_mock.get(DEFAULT_ALERTS_URL, exc=ClientError())
     freezer.move_to(paris(8, 30, day=24))
     await entry.runtime_data.async_refresh()
@@ -406,6 +423,7 @@ async def test_alert_message_truncated(
     long_text = "Travaux importants sur la ligne 1. " * 8
     aioclient_mock.get(DEFAULT_GTFS_URL, content=build_gtfs())
     aioclient_mock.get(DEFAULT_TRIP_UPDATES_URL, content=build_trip_updates())
+    aioclient_mock.get(DEFAULT_VEHICLE_POSITIONS_URL, content=build_vehicle_positions())
     aioclient_mock.get(
         DEFAULT_ALERTS_URL,
         content=build_alerts(
@@ -423,6 +441,71 @@ async def test_alert_message_truncated(
     assert state.state.endswith("…")
     assert state.attributes["alert_count"] == 2
     assert state.attributes["full_message"] == f"{long_text.strip()} • Quai déplacé."
+
+
+async def test_vehicles_sensor(
+    hass: HomeAssistant,
+    aioclient_mock: AiohttpClientMocker,
+    freezer: FrozenDateTimeFactory,
+    device_registry: dr.DeviceRegistry,
+) -> None:
+    """Each line counts its trams, remembering those waiting at a terminus."""
+    freezer.move_to(paris(8, 12))
+
+    def serve(trip_updates: bytes, positions: bytes) -> None:
+        aioclient_mock.clear_requests()
+        aioclient_mock.get(DEFAULT_GTFS_URL, content=build_gtfs())
+        aioclient_mock.get(DEFAULT_ALERTS_URL, content=build_alerts())
+        aioclient_mock.get(DEFAULT_TRIP_UPDATES_URL, content=trip_updates)
+        aioclient_mock.get(DEFAULT_VEHICLE_POSITIONS_URL, content=positions)
+
+    # 2020 waits at a terminus: only its next trip names it.
+    serve(
+        build_trip_updates(
+            {
+                "trip_id": trip_id(2, direction=1),
+                "direction_id": 1,
+                "vehicle_id": "2020",
+                "stops": [("D", paris(8, 20), None, False)],
+            }
+        ),
+        build_vehicle_positions(("2004", "1", 0), ("2007", "1", 1), ("240", "10", 0)),
+    )
+    entry = _entry()
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    state = hass.states.get(VEHICLES_SENSOR)
+    assert state.state == "3"
+    assert state.attributes["unit_of_measurement"] == "trams"
+    assert state.attributes["state_class"] == "measurement"
+    assert state.attributes["line"] == "1"
+    assert state.attributes["running"] == 3
+    assert state.attributes["vehicles"] == ["2004", "2007", "2020"]
+    device = device_registry.async_get_device(identifiers={(DOMAIN, "line_1")})
+    assert device is not None
+    assert device.name == "Tram 1"
+
+    # Trams vanishing from the feeds are still counted for a while.
+    serve(build_trip_updates(), build_vehicle_positions(("2004", "1", 0)))
+    freezer.move_to(paris(8, 25))
+    await entry.runtime_data.async_refresh()
+    await hass.async_block_till_done()
+    state = hass.states.get(VEHICLES_SENSOR)
+    assert state.state == "3"
+    assert state.attributes["running"] == 1
+
+    freezer.move_to(paris(8, 40))
+    await entry.runtime_data.async_refresh()
+    await hass.async_block_till_done()
+    assert hass.states.get(VEHICLES_SENSOR).state == "1"
+
+    # One feed is enough to keep counting.
+    serve(build_trip_updates(), b"not a protobuf \xff\xff")
+    await entry.runtime_data.async_refresh()
+    await hass.async_block_till_done()
+    assert hass.states.get(VEHICLES_SENSOR).state == "1"
 
 
 async def test_card_is_served(

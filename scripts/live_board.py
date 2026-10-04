@@ -20,13 +20,13 @@ ROOT = Path(__file__).resolve().parents[1]
 PACKAGE_DIR = ROOT / "custom_components" / "tam_montpellier"
 
 
-def _load_pure_modules() -> tuple[types.ModuleType, types.ModuleType, types.ModuleType]:
+def _load_pure_modules() -> tuple[types.ModuleType, ...]:
     """Load the HA-independent modules without importing the integration package."""
     package = types.ModuleType("tam_montpellier")
     package.__path__ = [str(PACKAGE_DIR)]
     sys.modules["tam_montpellier"] = package
     modules = []
-    for name in ("const", "gtfs_static", "departures"):
+    for name in ("const", "gtfs_static", "departures", "fleet"):
         spec = importlib.util.spec_from_file_location(
             f"tam_montpellier.{name}", PACKAGE_DIR / f"{name}.py"
         )
@@ -38,7 +38,7 @@ def _load_pure_modules() -> tuple[types.ModuleType, types.ModuleType, types.Modu
 
 
 def main() -> None:
-    const, gtfs_static, departures = _load_pure_modules()
+    const, gtfs_static, departures, fleet = _load_pure_modules()
     parser = argparse.ArgumentParser()
     parser.add_argument("stop", help="stop name (substring match)")
     parser.add_argument("--line", help="tram line (route_short_name)")
@@ -70,7 +70,22 @@ def main() -> None:
         payload = resp.read()
     snapshot = departures.parse_trip_updates(payload, set(static.routes))
     now = datetime.now(static.timezone)
-    print(f"Real-time feed: {len(snapshot.trips)} tram trips, now {now:%H:%M:%S}\n")
+    print(f"Real-time feed: {len(snapshot.trips)} tram trips, now {now:%H:%M:%S}")
+
+    # Trams seen right now; the integration also remembers those that vanished
+    # from the feeds while waiting at a terminus.
+    url = const.DEFAULT_VEHICLE_POSITIONS_URL
+    with urllib.request.urlopen(url, timeout=20) as resp:
+        positions = fleet.parse_vehicle_positions(resp.read(), set(static.routes))
+    tracker = fleet.FleetTracker(const.FLEET_MEMORY)
+    tracker.update(
+        fleet.trip_update_vehicles(snapshot, static) | positions, now.timestamp()
+    )
+    counts = [
+        f"T{fleet.fleet_line_name(static, line)} {tracker.running(line)}"
+        for line in fleet.fleet_lines(static)
+    ]
+    print(f"Trams running now: {', '.join(counts)}\n")
 
     for key in sorted(keys, key=lambda k: (k[1], k[2])):
         stop_id, route_id, direction_id = key

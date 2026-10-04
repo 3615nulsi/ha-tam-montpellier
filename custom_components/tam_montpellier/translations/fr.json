@@ -7,7 +7,8 @@
         "data": {
           "trip_updates_url": "Flux temps réel (GTFS-RT TripUpdate)",
           "gtfs_url": "Horaires théoriques (GTFS)",
-          "alerts_url": "Alertes trafic (GTFS-RT Alert)"
+          "alerts_url": "Alertes trafic (GTFS-RT Alert)",
+          "vehicle_positions_url": "Positions des rames (GTFS-RT VehiclePosition)"
         }
       }
     },
@@ -209,6 +210,27 @@
           },
           "full_message": {
             "name": "Message complet"
+          }
+        }
+      },
+      "vehicles_in_service": {
+        "name": "Rames en service",
+        "unit_of_measurement": "rames",
+        "state_attributes": {
+          "line": {
+            "name": "Ligne"
+          },
+          "line_color": {
+            "name": "Couleur de la ligne"
+          },
+          "line_text_color": {
+            "name": "Couleur du texte"
+          },
+          "running": {
+            "name": "En circulation"
+          },
+          "vehicles": {
+            "name": "Numéros des rames"
           }
         }
       }

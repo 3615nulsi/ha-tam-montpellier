@@ -7,7 +7,8 @@
         "data": {
           "trip_updates_url": "Real-time feed (GTFS-RT TripUpdate)",
           "gtfs_url": "Timetables (GTFS)",
-          "alerts_url": "Service alerts (GTFS-RT Alert)"
+          "alerts_url": "Service alerts (GTFS-RT Alert)",
+          "vehicle_positions_url": "Vehicle positions (GTFS-RT VehiclePosition)"
         }
       }
     },
@@ -209,6 +210,27 @@
           },
           "full_message": {
             "name": "Full message"
+          }
+        }
+      },
+      "vehicles_in_service": {
+        "name": "Trams in service",
+        "unit_of_measurement": "trams",
+        "state_attributes": {
+          "line": {
+            "name": "Line"
+          },
+          "line_color": {
+            "name": "Line color"
+          },
+          "line_text_color": {
+            "name": "Text color"
+          },
+          "running": {
+            "name": "Running now"
+          },
+          "vehicles": {
+            "name": "Fleet numbers"
           }
         }
       }
