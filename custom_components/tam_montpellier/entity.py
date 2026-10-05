@@ -39,7 +39,7 @@ class TamStopEntity(CoordinatorEntity[TamCoordinator]):
             identifiers={(DOMAIN, f"{stop_id}_{route_id}_{direction_id}")},
             name=subentry.title,
             manufacturer="TaM",
-            model=f"Tram {self._line}",
+            model=f"{coordinator.static.line_kind(route_id)} {self._line}",
             entry_type=DeviceEntryType.SERVICE,
         )
 

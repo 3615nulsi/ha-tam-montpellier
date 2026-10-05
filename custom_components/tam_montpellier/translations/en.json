@@ -240,5 +240,22 @@
     "gtfs_unavailable": {
       "message": "Unable to load the TaM timetables: {error}"
     }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Bus lines",
+        "description": "Extra lines to offer next to the tram lines. Pick the bus lines you want to follow, then use \"Add stop\" to choose the stops.\n\nA line with a followed stop cannot be removed.",
+        "data": {
+          "extra_routes": "Bus lines"
+        }
+      }
+    },
+    "error": {
+      "route_in_use": "These lines still have a followed stop: {lines}. Remove their stops first."
+    },
+    "abort": {
+      "entry_not_loaded": "The integration is not loaded: bus lines cannot be listed."
+    }
   }
 }

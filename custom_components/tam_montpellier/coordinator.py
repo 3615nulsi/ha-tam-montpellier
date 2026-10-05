@@ -20,6 +20,7 @@ from .alerts import Alert, parse_alerts
 from .const import (
     CONF_ALERTS_URL,
     CONF_DIRECTION_ID,
+    CONF_EXTRA_ROUTES,
     CONF_GTFS_URL,
     CONF_ROUTE_ID,
     CONF_STOP_ID,
@@ -115,9 +116,10 @@ class TamCoordinator(DataUpdateCoordinator[dict[StopKey, list[Departure]]]):
             self._gtfs_path,
             self._static_cache_path,
             {key[0] for key in self.stop_keys},
+            set(self.config_entry.options.get(CONF_EXTRA_ROUTES, [])),
         )
         _LOGGER.debug(
-            "Loaded %d tram lines and %d trips from GTFS",
+            "Loaded %d lines and %d trips from GTFS",
             len(self.static.routes),
             len(self.static.trips),
         )

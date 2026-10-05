@@ -35,7 +35,7 @@
         },
         "direction": {
           "title": "Choisir la direction",
-          "description": "{line} : dans quel sens prenez-vous le tram ?",
+          "description": "{line} : dans quel sens voyagez-vous ?",
           "data": {
             "direction_id": "Direction"
           }
@@ -239,6 +239,23 @@
   "exceptions": {
     "gtfs_unavailable": {
       "message": "Impossible de charger les horaires théoriques TaM : {error}"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Lignes de bus",
+        "description": "Lignes supplémentaires proposées avec les lignes de tram. Choisissez les lignes de bus à suivre, puis utilisez « Ajouter un arrêt » pour choisir les arrêts.\n\nUne ligne dont un arrêt est suivi ne peut pas être retirée.",
+        "data": {
+          "extra_routes": "Lignes de bus"
+        }
+      }
+    },
+    "error": {
+      "route_in_use": "Ces lignes ont encore un arrêt suivi : {lines}. Supprimez d'abord leurs arrêts."
+    },
+    "abort": {
+      "entry_not_loaded": "L'intégration n'est pas chargée : les lignes de bus ne peuvent pas être listées."
     }
   }
 }

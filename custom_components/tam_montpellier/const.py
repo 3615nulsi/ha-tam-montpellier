@@ -15,6 +15,8 @@ CONF_VEHICLE_POSITIONS_URL: Final = "vehicle_positions_url"
 CONF_ROUTE_ID: Final = "route_id"
 CONF_DIRECTION_ID: Final = "direction_id"
 CONF_STOP_ID: Final = "stop_id"
+# Option: ids of the bus lines to offer next to the tram lines.
+CONF_EXTRA_ROUTES: Final = "extra_routes"
 
 SUBENTRY_TYPE_STOP: Final = "stop"
 
@@ -27,6 +29,8 @@ DEFAULT_VEHICLE_POSITIONS_URL: Final = (
 
 # GTFS route_type 0 = tram / light rail.
 TRAM_ROUTE_TYPE: Final = "0"
+# GTFS route_type 3 = bus.
+BUS_ROUTE_TYPE: Final = "3"
 
 UPDATE_INTERVAL: Final = timedelta(seconds=30)
 REQUEST_TIMEOUT: Final = 20

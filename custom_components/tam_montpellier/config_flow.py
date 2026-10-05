@@ -14,6 +14,7 @@ from homeassistant.config_entries import (
     ConfigFlow,
     ConfigFlowResult,
     ConfigSubentryFlow,
+    OptionsFlow,
     SubentryFlowResult,
 )
 from homeassistant.core import callback
@@ -30,6 +31,7 @@ from homeassistant.helpers.selector import (
 from .const import (
     CONF_ALERTS_URL,
     CONF_DIRECTION_ID,
+    CONF_EXTRA_ROUTES,
     CONF_GTFS_URL,
     CONF_ROUTE_ID,
     CONF_STOP_ID,
@@ -92,6 +94,12 @@ class TamConfigFlow(ConfigFlow, domain=DOMAIN):
         """Return the subentries supported by this integration."""
         return {SUBENTRY_TYPE_STOP: StopSubentryFlowHandler}
 
+    @staticmethod
+    @callback
+    def async_get_options_flow(config_entry: ConfigEntry) -> OptionsFlow:
+        """Return the options flow, which picks the bus lines to offer."""
+        return TamOptionsFlow()
+
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
@@ -133,6 +141,76 @@ class TamConfigFlow(ConfigFlow, domain=DOMAIN):
         )
 
 
+class TamOptionsFlow(OptionsFlow):
+    """Choose the bus lines offered next to the tram lines."""
+
+    async def async_step_init(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Select the bus lines."""
+        entry: TamConfigEntry = self.config_entry
+        if entry.state is not ConfigEntryState.LOADED:
+            return self.async_abort(reason="entry_not_loaded")
+        static = entry.runtime_data.static
+        chosen = set(entry.options.get(CONF_EXTRA_ROUTES, []))
+        # A line with a followed stop cannot be removed.
+        in_use = {
+            subentry.data[CONF_ROUTE_ID] for subentry in entry.subentries.values()
+        }
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            selected = set(user_input[CONF_EXTRA_ROUTES])
+            if missing := (in_use & chosen) - selected:
+                errors["base"] = "route_in_use"
+                names = ", ".join(
+                    sorted(static.routes[route_id].short_name for route_id in missing)
+                )
+                placeholders = {"lines": names}
+            else:
+                return self.async_create_entry(
+                    data={CONF_EXTRA_ROUTES: sorted(selected)}
+                )
+        else:
+            placeholders = {"lines": ""}
+
+        buses = [
+            route
+            for route in (*static.routes.values(), *static.other_routes.values())
+            if not route.is_tram
+        ]
+        buses.sort(key=lambda route: (len(route.short_name), route.short_name))
+        return self.async_show_form(
+            step_id="init",
+            data_schema=self.add_suggested_values_to_schema(
+                vol.Schema(
+                    {
+                        vol.Required(CONF_EXTRA_ROUTES): SelectSelector(
+                            SelectSelectorConfig(
+                                options=[
+                                    SelectOptionDict(
+                                        value=route.route_id,
+                                        label=(
+                                            f"Bus {route.short_name}"
+                                            f" · {route.long_name}"
+                                        ),
+                                    )
+                                    for route in buses
+                                ],
+                                multiple=True,
+                                mode=SelectSelectorMode.DROPDOWN,
+                            )
+                        )
+                    }
+                ),
+                {CONF_EXTRA_ROUTES: sorted(user_input[CONF_EXTRA_ROUTES])}
+                if user_input
+                else {CONF_EXTRA_ROUTES: sorted(chosen)},
+            ),
+            errors=errors,
+            description_placeholders=placeholders,
+        )
+
+
 class StopSubentryFlowHandler(ConfigSubentryFlow):
     """Add a monitored stop: line, then direction, then stop."""
 
@@ -157,7 +235,11 @@ class StopSubentryFlowHandler(ConfigSubentryFlow):
 
         routes = sorted(
             static.routes.values(),
-            key=lambda route: (len(route.short_name), route.short_name),
+            key=lambda route: (
+                not route.is_tram,
+                len(route.short_name),
+                route.short_name,
+            ),
         )
         return self.async_show_form(
             step_id="user",
@@ -169,7 +251,8 @@ class StopSubentryFlowHandler(ConfigSubentryFlow):
                                 SelectOptionDict(
                                     value=route.route_id,
                                     label=(
-                                        f"Tram {route.short_name} · {route.long_name}"
+                                        f"{route.kind} {route.short_name}"
+                                        f" · {route.long_name}"
                                     ),
                                 )
                                 for route in routes
@@ -228,7 +311,9 @@ class StopSubentryFlowHandler(ConfigSubentryFlow):
             ):
                 return self.async_abort(reason="already_configured")
             stop_name = static.stop_names.get(stop_id, stop_id)
-            line = f"Tram {static.line_name(self._route_id, self._direction_id)}"
+            kind = static.line_kind(self._route_id)
+            name = static.line_name(self._route_id, self._direction_id)
+            line = f"{kind} {name}"
             if (self._route_id, self._direction_id) in static.clockwise:
                 # Circular line: its name tells the direction, "Tram 4a".
                 title = f"{stop_name} ({line})"
@@ -268,7 +353,8 @@ class StopSubentryFlowHandler(ConfigSubentryFlow):
             ),
             description_placeholders={
                 "line": (
-                    f"Tram {static.line_name(self._route_id, self._direction_id)}"
+                    f"{static.line_kind(self._route_id)} "
+                    f"{static.line_name(self._route_id, self._direction_id)}"
                 ),
                 "direction": self._direction_name,
             },
@@ -286,4 +372,5 @@ class StopSubentryFlowHandler(ConfigSubentryFlow):
     @property
     def _line_name(self) -> str:
         route = self._static.routes.get(self._route_id)
-        return f"Tram {route.short_name if route else self._route_id}"
+        kind = self._static.line_kind(self._route_id)
+        return f"{kind} {route.short_name if route else self._route_id}"
