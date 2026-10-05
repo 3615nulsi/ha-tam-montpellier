@@ -55,6 +55,21 @@ prochain passage, destination, perturbations). Le compteur de véhicules en
 service ne concerne que le tramway. Une ligne dont un arrêt est suivi ne peut
 pas être retirée de la liste.
 
+**Choisissez seulement les lignes dont vous avez besoin.** Chaque ligne cochée
+est chargée en mémoire à chaque analyse du GTFS (au démarrage, puis une fois
+par jour). Mesuré sur le jeu de données réel : le tram seul ≈ 34 Mo de pic, avec
+la ligne 22 ≈ 36 Mo, avec les 40 lignes de bus ≈ 79 Mo. Sur un petit appareil
+(Raspberry Pi 3), ne cochez que quelques lignes.
+
+**Couleurs.** Chaque ligne de bus reprend sa couleur officielle du GTFS
+(`route_color` / `route_text_color`), exposée dans les attributs `line_color` et
+`line_text_color` et utilisée par la carte (ex. bus 22 : bleu clair `#81CFF4`,
+texte noir). Ce sont les couleurs de la TaM, sans correction : quelques lignes
+(2, 6, 7, 16, 18, 20, 23, 28, 31, 34) ont du texte blanc sur fond clair, au
+contraste inférieur à 4,5:1. La carte assombrit ou éclaircit seulement la
+couleur utilisée comme texte pour rester lisible. Le filigrane de livrée
+n'existe que pour les lignes de tram.
+
 Chaque arrêt suivi devient un appareil (ex. « Comédie → Mosson (Tram 1) ») avec :
 
 | Entité | Description |
