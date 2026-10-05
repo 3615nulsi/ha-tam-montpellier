@@ -133,6 +133,11 @@ d'alerte en cas de perturbation. Rien à installer en plus. Le bandeau porte en
 filigrane un motif inspiré de la livrée de chaque ligne ; sur la ligne 4, un
 pictogramme y indique le sens de rotation.
 
+**Déclarer la carte comme ressource (une seule fois).** L'intégration sert le
+fichier de la carte mais ne le charge plus d'elle-même dans l'interface :
+ajoutez-le dans *Paramètres → Tableaux de bord → ⋮ → Ressources → Ajouter une
+ressource*, URL `/tam_montpellier/tam-board-card.js`, type *Module JavaScript*.
+
 ![Cartes « afficheur de quai » des cinq lignes de tramway](assets/cartes.png)
 
 1. Tableau de bord → ✏️ Modifier → **Ajouter une carte**.
