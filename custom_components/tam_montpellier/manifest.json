@@ -2,7 +2,8 @@
   "domain": "tam_montpellier",
   "name": "TaM Montpellier",
   "after_dependencies": [
-    "frontend"
+    "frontend",
+    "lovelace"
   ],
   "codeowners": [
     "@3615nulsi"
@@ -19,5 +20,5 @@
     "gtfs-realtime-bindings==2.2.0"
   ],
   "single_config_entry": true,
-  "version": "0.6.0"
+  "version": "0.7.0"
 }

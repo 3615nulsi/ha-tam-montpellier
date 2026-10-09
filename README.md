@@ -149,6 +149,14 @@ device: <identifiant de l'appareil de l'arrêt>
 Options facultatives : `name` (nom de l'arrêt affiché) et `direction`
 (direction affichée).
 
+L'intégration déclare elle-même sa carte dans les ressources des tableaux de
+bord (Paramètres → Tableaux de bord → Ressources) et la recrée au démarrage si
+elle a été supprimée. Si vos ressources sont définies en YAML, elle charge la
+carte autrement : rien à déclarer non plus.
+
+**Dépannage** : si la carte affiche « Erreur de configuration », rechargez la
+page (dans l'application mobile, tirez l'écran vers le bas).
+
 ### Bandeau de perturbation (affiché seulement en cas d'alerte)
 
 ```yaml
