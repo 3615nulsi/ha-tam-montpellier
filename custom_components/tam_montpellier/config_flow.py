@@ -162,8 +162,14 @@ class TamOptionsFlow(OptionsFlow):
             selected = set(user_input[CONF_EXTRA_ROUTES])
             if missing := (in_use & chosen) - selected:
                 errors["base"] = "route_in_use"
+                # A line removed from the GTFS is named after its id.
                 names = ", ".join(
-                    sorted(static.routes[route_id].short_name for route_id in missing)
+                    sorted(
+                        static.routes[route_id].short_name
+                        if route_id in static.routes
+                        else route_id
+                        for route_id in missing
+                    )
                 )
                 placeholders = {"lines": names}
             else:
@@ -179,12 +185,15 @@ class TamOptionsFlow(OptionsFlow):
             if not route.is_tram
         ]
         buses.sort(key=lambda route: (len(route.short_name), route.short_name))
+        # Lines removed from the GTFS can no longer be selected.
+        chosen &= {route.route_id for route in buses}
         return self.async_show_form(
             step_id="init",
             data_schema=self.add_suggested_values_to_schema(
                 vol.Schema(
                     {
-                        vol.Required(CONF_EXTRA_ROUTES): SelectSelector(
+                        # Optional: no line at all brings back the tram alone.
+                        vol.Optional(CONF_EXTRA_ROUTES, default=[]): SelectSelector(
                             SelectSelectorConfig(
                                 options=[
                                     SelectOptionDict(
