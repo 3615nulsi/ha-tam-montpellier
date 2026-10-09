@@ -1,9 +1,9 @@
 /*
  * TaM Montpellier – departure board card.
  *
- * Shipped with the tam_montpellier integration, which loads it in the
- * frontend: no resource to declare, no dependency. Pick a stop in the
- * visual editor; the card finds that stop's sensors by itself.
+ * Shipped with the tam_montpellier integration, which declares it as a
+ * dashboard resource by itself: nothing to install, no dependency. Pick a
+ * stop in the visual editor; the card finds that stop's sensors by itself.
  */
 
 const CARD_VERSION = "0.7.0";
@@ -252,11 +252,12 @@ function loopIcon(clockwise, ink, bg) {
     <circle cx="10" cy="21" r="2.6" fill="${bg}" stroke="${ink}" stroke-width="1.6"/></svg>`;
 }
 
+const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
 function render(entity, states, hass, variables, alertEntity, fleetEntity) {
   const e = entity;
   if (!e) return '<div class="tam empty">Capteur introuvable</div>';
   const a = e.attributes;
-  const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   const color = a.line_color || '#005CA9';
   const ink = a.line_text_color || '#FFFFFF';
   const line = String(a.line || '?');
@@ -341,24 +342,34 @@ class TamBoardCard extends HTMLElement {
 
   set hass(hass) {
     this._hass = hass;
-    let minutes = this._config.entity;
-    let alert = this._config.alert_entity;
-    const deviceId = this._config.device || hass.entities?.[minutes]?.device_id;
-    const found = stopEntities(hass, deviceId);
-    minutes = minutes || found.minutes;
-    alert = alert || found.alert;
-    const entity = minutes ? hass.states[minutes] : undefined;
-    const fleet = entity ? found.fleet[String(entity.attributes.line)] : undefined;
-    const alertState = alert ? hass.states[alert] : undefined;
-    const fleetState = fleet ? hass.states[fleet] : undefined;
-    const signature = [entity?.last_updated, alertState?.last_updated, fleetState?.state, hass.themes?.darkMode].join("|");
-    if (signature === this._signature) return;
-    this._signature = signature;
-    this._minutes = minutes;
-    this._render(entity, alert, fleet);
+    if (!this._config) return;
+    try {
+      let minutes = this._config.entity;
+      let alert = this._config.alert_entity;
+      const deviceId = this._config.device || hass.entities?.[minutes]?.device_id;
+      const found = stopEntities(hass, deviceId);
+      minutes = minutes || found.minutes;
+      alert = alert || found.alert;
+      const entity = minutes ? hass.states[minutes] : undefined;
+      const fleet = entity ? found.fleet[String(entity.attributes.line)] : undefined;
+      const alertState = alert ? hass.states[alert] : undefined;
+      const fleetState = fleet ? hass.states[fleet] : undefined;
+      const signature = [entity?.last_updated, alertState?.last_updated, fleetState?.state, hass.themes?.darkMode].join("|");
+      if (signature === this._signature) return;
+      this._signature = signature;
+      this._minutes = minutes;
+      this._render(entity, alert, fleet);
+    } catch (err) {
+      // Thrown from here, Home Assistant would swap the card for "Erreur de
+      // configuration" for good: show the error and retry at the next update.
+      console.error("tam-board-card", err);
+      this._signature = undefined;
+      this._card().innerHTML = `<div class="none">Affichage impossible : ${esc(err?.message)}</div>`;
+    }
   }
 
-  _render(entity, alert, fleet) {
+  /** The card's ha-card, created at the first render. */
+  _card() {
     if (!this.shadowRoot) {
       this.attachShadow({ mode: "open" });
       this.shadowRoot.innerHTML = `<style>${STYLES}</style><ha-card></ha-card>`;
@@ -369,9 +380,12 @@ class TamBoardCard extends HTMLElement {
         }));
       });
     }
+    return this.shadowRoot.querySelector("ha-card");
+  }
+
+  _render(entity, alert, fleet) {
     const variables = { stop_name: this._config.name, direction: this._config.direction };
-    this.shadowRoot.querySelector("ha-card").innerHTML =
-      render(entity, this._hass.states, this._hass, variables, alert, fleet);
+    this._card().innerHTML = render(entity, this._hass.states, this._hass, variables, alert, fleet);
   }
 
   getCardSize() { return 4; }
@@ -426,9 +440,36 @@ class TamBoardCardEditor extends HTMLElement {
   }
 }
 
+/**
+ * Defines a custom element, again if Home Assistant has lost it.
+ *
+ * When dashboard resources are set in YAML, the integration loads this file
+ * as an extra module, which may run before the frontend replaces
+ * `customElements` with its scoped registry polyfill: Home Assistant then no
+ * longer finds the element, and the card shows "Erreur de configuration"
+ * until the page is reloaded (home-assistant/frontend#53890). The element is
+ * defined again in the new registry once Home Assistant has defined its own,
+ * which it does after the swap; error cards then rebuild by themselves.
+ */
+function define(name, ctor) {
+  const registry = customElements;
+  registry.define(name, ctor);
+  const heal = () => {
+    if (customElements.get(name)) return;
+    try {
+      customElements.define(name, ctor);
+      console.info(`TAM-BOARD-CARD: ${name} defined again after the registry swap (home-assistant/frontend#53890)`);
+    } catch (err) {
+      console.warn(`TAM-BOARD-CARD: could not define ${name} again`, err);
+    }
+  };
+  registry.whenDefined("home-assistant").then(heal);
+  setTimeout(heal, 5000);
+}
+
 if (!customElements.get("tam-board-card")) {
-  customElements.define("tam-board-card", TamBoardCard);
-  customElements.define("tam-board-card-editor", TamBoardCardEditor);
+  define("tam-board-card", TamBoardCard);
+  define("tam-board-card-editor", TamBoardCardEditor);
   window.customCards = window.customCards || [];
   window.customCards.push({
     type: "tam-board-card",

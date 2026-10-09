@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import timedelta
+from unittest.mock import ANY, patch
 
 from aiohttp import ClientError
 from freezegun.api import FrozenDateTimeFactory
@@ -34,6 +35,8 @@ from homeassistant.config_entries import ConfigEntryState, ConfigSubentryData
 from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
 from homeassistant.helpers import device_registry as dr, entity_registry as er
+from homeassistant.loader import async_get_integration
+from homeassistant.setup import async_setup_component
 
 from .conftest import (
     build_alerts,
@@ -58,6 +61,7 @@ MINUTES_SENSOR = "sensor.bravo_delta_tram_1_minutes_to_next_departure"
 DISRUPTION_SENSOR = "binary_sensor.bravo_delta_tram_1_disruption"
 ALERT_MESSAGE_SENSOR = "sensor.bravo_delta_tram_1_disruption_message"
 VEHICLES_SENSOR = "sensor.tram_1_trams_in_service"
+CARD_URL = "/tam_montpellier/tam-board-card.js"
 
 
 @pytest.fixture(name="mock_feeds")
@@ -524,4 +528,107 @@ async def test_card_is_served(
     client = await hass_client()
     response = await client.get("/tam_montpellier/tam-board-card.js")
     assert response.status == 200
-    assert 'customElements.define("tam-board-card"' in await response.text()
+    assert 'define("tam-board-card", TamBoardCard)' in await response.text()
+
+
+async def _set_up_with_dashboards(
+    hass: HomeAssistant, lovelace_config: dict | None = None
+) -> MockConfigEntry:
+    """Set up the integration after the dashboards integration."""
+    assert await async_setup_component(hass, "lovelace", lovelace_config or {})
+    entry = _entry()
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    return entry
+
+
+async def _card_url(hass: HomeAssistant) -> str:
+    return f"{CARD_URL}?v={(await async_get_integration(hass, DOMAIN)).version}"
+
+
+async def test_card_declared_as_resource(
+    hass: HomeAssistant,
+    mock_feeds: AiohttpClientMocker,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """The card is a dashboard resource, removed with the integration."""
+    freezer.move_to(paris(8, 12))
+    hass.config.components.add("frontend")
+    with patch(
+        "custom_components.tam_montpellier.add_extra_js_url"
+    ) as add_extra_js_url:
+        entry = await _set_up_with_dashboards(hass)
+
+    # An extra module could run before the frontend code and lose the card.
+    add_extra_js_url.assert_not_called()
+    resources = hass.data["lovelace"].resources
+    assert resources.async_items() == [
+        {"id": ANY, "type": "module", "url": await _card_url(hass)}
+    ]
+
+    assert await hass.config_entries.async_remove(entry.entry_id)
+    await hass.async_block_till_done()
+    assert resources.async_items() == []
+
+
+async def test_card_resource_updated(
+    hass: HomeAssistant,
+    mock_feeds: AiohttpClientMocker,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """The resource of an older version is updated, and duplicates removed."""
+    freezer.move_to(paris(8, 12))
+    assert await async_setup_component(hass, "lovelace", {})
+    resources = hass.data["lovelace"].resources
+    await resources.async_get_info()
+    for url in (f"{CARD_URL}?v=0.1.0", "/local/other-card.js", CARD_URL):
+        await resources.async_create_item({"res_type": "module", "url": url})
+
+    await _set_up_with_dashboards(hass)
+    assert [item["url"] for item in resources.async_items()] == [
+        await _card_url(hass),
+        "/local/other-card.js",
+    ]
+
+
+async def test_card_extra_module_with_yaml_resources(
+    hass: HomeAssistant,
+    mock_feeds: AiohttpClientMocker,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """With resources set in YAML, the card is loaded as an extra module."""
+    freezer.move_to(paris(8, 12))
+    hass.config.components.add("frontend")
+    with patch(
+        "custom_components.tam_montpellier.add_extra_js_url"
+    ) as add_extra_js_url:
+        await _set_up_with_dashboards(hass, {"lovelace": {"resource_mode": "yaml"}})
+
+    assert hass.data["lovelace"].resources.async_items() == []
+    add_extra_js_url.assert_called_once_with(hass, await _card_url(hass))
+
+
+async def test_card_extra_module_when_resources_fail(
+    hass: HomeAssistant,
+    mock_feeds: AiohttpClientMocker,
+    freezer: FrozenDateTimeFactory,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The card is loaded as an extra module if it cannot be a resource."""
+    freezer.move_to(paris(8, 12))
+    hass.config.components.add("frontend")
+    assert await async_setup_component(hass, "lovelace", {})
+    with (
+        patch.object(
+            hass.data["lovelace"].resources,
+            "async_create_item",
+            side_effect=RuntimeError("internal API changed"),
+        ),
+        patch("custom_components.tam_montpellier.add_extra_js_url") as add_extra_js_url,
+    ):
+        await _set_up_with_dashboards(hass)
+
+    add_extra_js_url.assert_called_once_with(hass, await _card_url(hass))
+    assert "Could not declare the TaM card as a dashboard resource" in caplog.text
+    assert hass.states.get(MINUTES_SENSOR) is not None
