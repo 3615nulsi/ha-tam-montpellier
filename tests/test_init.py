@@ -19,6 +19,7 @@ from pytest_homeassistant_custom_component.test_util.aiohttp import (
 from custom_components.tam_montpellier.const import (
     CONF_ALERTS_URL,
     CONF_DIRECTION_ID,
+    CONF_EXTRA_ROUTES,
     CONF_GTFS_URL,
     CONF_ROUTE_ID,
     CONF_STOP_ID,
@@ -324,6 +325,105 @@ async def test_stop_subentry_flow(
     )
     assert result["type"] is FlowResultType.ABORT
     assert result["reason"] == "already_configured"
+
+
+async def test_bus_lines_option(
+    hass: HomeAssistant,
+    mock_feeds: AiohttpClientMocker,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """Bus lines chosen in the options are offered when adding a stop."""
+    freezer.move_to(paris(7, 55))
+    entry = _entry(with_stop=False)
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    options = result["data_schema"].schema[CONF_EXTRA_ROUTES].config["options"]
+    assert options == [{"value": "10", "label": "Bus 10 · Bus line"}]
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {CONF_EXTRA_ROUTES: ["10"]}
+    )
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    await hass.async_block_till_done()
+
+    # The entry is reloaded: the bus line is offered after the tram lines.
+    result = await hass.config_entries.subentries.async_init(
+        (entry.entry_id, SUBENTRY_TYPE_STOP), context={"source": "user"}
+    )
+    options = result["data_schema"].schema[CONF_ROUTE_ID].config["options"]
+    assert [option["label"] for option in options] == [
+        "Tram 1 · Alpha - Delta",
+        "Bus 10 · Bus line",
+    ]
+    result = await hass.config_entries.subentries.async_configure(
+        result["flow_id"], {CONF_ROUTE_ID: "10"}
+    )
+    result = await hass.config_entries.subentries.async_configure(
+        result["flow_id"], {CONF_DIRECTION_ID: "0"}
+    )
+    result = await hass.config_entries.subentries.async_configure(
+        result["flow_id"], {CONF_STOP_ID: "X"}
+    )
+    assert result["title"] == "Bus stop → Bus terminus (Bus 10)"
+    await hass.async_block_till_done()
+
+    minutes = hass.states.get(
+        "sensor.bus_stop_bus_terminus_bus_10_minutes_to_next_departure"
+    )
+    assert minutes.state == "5"
+    device = dr.async_get(hass).async_get_device({(DOMAIN, "X_10_0")})
+    assert device.model == "Bus 10"
+    # Only the trams are counted.
+    assert not [
+        item
+        for item in er.async_entries_for_config_entry(
+            er.async_get(hass), entry.entry_id
+        )
+        if item.unique_id.startswith("line_10")
+    ]
+
+    # A line with a followed stop cannot be removed, even with nothing chosen.
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    result = await hass.config_entries.options.async_configure(result["flow_id"], {})
+    assert result["errors"] == {"base": "route_in_use"}
+    assert result["description_placeholders"] == {"lines": "10"}
+
+
+async def test_bus_line_gone_from_gtfs(
+    hass: HomeAssistant,
+    mock_feeds: AiohttpClientMocker,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """A chosen line no longer in the GTFS is not suggested, nor removed in use."""
+    freezer.move_to(paris(8, 12))
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="TaM Montpellier",
+        data=ENTRY_DATA,
+        options={CONF_EXTRA_ROUTES: ["10", "99"]},
+        subentries_data=[
+            ConfigSubentryData(
+                data={CONF_ROUTE_ID: "99", CONF_DIRECTION_ID: 0, CONF_STOP_ID: "X"},
+                subentry_type=SUBENTRY_TYPE_STOP,
+                title="Bus stop (Bus 99)",
+                unique_id="X_99_0",
+            )
+        ],
+    )
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    key = next(iter(result["data_schema"].schema))
+    assert key.description == {"suggested_value": ["10"]}
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {CONF_EXTRA_ROUTES: ["10"]}
+    )
+    assert result["errors"] == {"base": "route_in_use"}
+    assert result["description_placeholders"] == {"lines": "99"}
 
 
 async def test_gtfs_cache_reused(

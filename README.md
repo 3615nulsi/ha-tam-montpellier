@@ -44,6 +44,30 @@ s'affiche à partir de 2026.3.
 2. Sur la page de l'intégration, **Ajouter un arrêt** : choisir la ligne, la
    direction, puis l'arrêt. Recommencer pour chaque arrêt à suivre.
 
+### Lignes de bus (option)
+
+Seul le tramway est proposé par défaut. Pour suivre aussi des lignes de bus de
+la TaM (flux GTFS identique) : *Paramètres → Appareils et services → TaM
+Montpellier → Configurer*, choisir les lignes de bus voulues (ex. la 22), puis
+**Ajouter un arrêt** : elles apparaissent dans la liste des lignes, avec
+« Bus » à la place de « Tram ». Les capteurs sont les mêmes (minutes avant le
+prochain passage, destination, perturbations). Le compteur de véhicules en
+service ne concerne que le tramway. Une ligne dont un arrêt est suivi ne peut
+pas être retirée de la liste.
+
+**Choisissez seulement les lignes dont vous avez besoin.** Chaque ligne cochée
+est chargée en mémoire à chaque analyse du GTFS (au démarrage, puis une fois
+par jour). Mesuré sur le jeu de données réel : le tram seul ≈ 34 Mo de pic, avec
+la ligne 22 ≈ 36 Mo, avec les 40 lignes de bus ≈ 79 Mo. Sur un petit appareil
+(Raspberry Pi 3), ne cochez que quelques lignes.
+
+**Couleurs.** Chaque ligne de bus reprend sa couleur officielle du GTFS
+(`route_color` / `route_text_color`), exposée dans les attributs `line_color` et
+`line_text_color` et utilisée par la carte (ex. bus 22 : bleu clair `#81CFF4`,
+texte noir). Ce sont les couleurs de la TaM, sans correction ; la carte
+assombrit ou éclaircit seulement la couleur utilisée comme texte pour rester
+lisible. Le filigrane de livrée n'existe que pour les lignes de tram.
+
 Chaque arrêt suivi devient un appareil (ex. « Comédie → Mosson (Tram 1) ») avec :
 
 | Entité | Description |

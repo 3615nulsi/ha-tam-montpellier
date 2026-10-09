@@ -6,7 +6,7 @@
  * stop in the visual editor; the card finds that stop's sensors by itself.
  */
 
-const CARD_VERSION = "0.7.0";
+const CARD_VERSION = "0.8.0";
 const DOMAIN = "tam_montpellier";
 
 const STYLES = `
@@ -270,8 +270,8 @@ function render(entity, states, hass, variables, alertEntity, fleetEntity) {
   let accent = color;
   if (!darkTheme && luminance > 0.62) accent = `color-mix(in srgb, ${color} 62%, #000)`;
   if (darkTheme && luminance < 0.4) accent = `color-mix(in srgb, ${color} 55%, #fff)`;
-  // "Comédie → Mosson (Tram 1) Minutes avant le prochain passage"
-  const title = (a.friendly_name || '').split(' (Tram')[0];
+  // "Comédie → Mosson (Tram 1) Minutes avant le prochain passage", or "(Bus 22)".
+  const title = (a.friendly_name || '').split(/ \((?:Tram|Bus) /)[0];
   const [stopName, direction] = title.includes(' → ') ? title.split(' → ') : [title, ''];
   const stop = variables.stop_name || stopName;
   const towards = variables.direction || direction;
@@ -474,7 +474,7 @@ if (!customElements.get("tam-board-card")) {
   window.customCards.push({
     type: "tam-board-card",
     name: "TaM – Afficheur de quai",
-    description: "Prochains trams d'un arrêt, aux couleurs de la ligne TaM.",
+    description: "Prochains passages d'un arrêt (tram ou bus), aux couleurs de la ligne TaM.",
     preview: true,
     documentationURL: "https://github.com/3615nulsi/ha-tam-montpellier",
   });

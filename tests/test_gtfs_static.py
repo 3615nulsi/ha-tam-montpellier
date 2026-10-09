@@ -112,3 +112,36 @@ def test_circular_line_directions(tmp_path: Path, gtfs_zip: Path) -> None:
     assert static.clockwise == {}
     assert static.line_name("1", 0) == "1"
     assert _direction_option(static, "1", 0) == "Vers Delta (depuis Alpha)"
+
+
+def test_bus_lines_are_offered_not_loaded(gtfs_zip: Path) -> None:
+    """Bus lines are only listed until the user picks them."""
+    data = parse_static(gtfs_zip)
+    assert set(data.routes) == {"1"}
+    assert data.routes["1"].kind == "Tram"
+    assert set(data.other_routes) == {"10"}
+    assert data.other_routes["10"].kind == "Bus"
+    assert not [key for key in data.line_stops if key[0] == "10"]
+
+
+def test_extra_bus_line_is_loaded(gtfs_zip: Path) -> None:
+    """A chosen bus line is parsed like a tram line, with its schedule."""
+    data = parse_static(gtfs_zip, {"X"}, extra_routes={"10"})
+    assert set(data.routes) == {"1", "10"}
+    assert not data.other_routes
+    assert data.line_kind("10") == "Bus"
+    assert data.line_stops[("10", 0)] == ["X", "B"]
+    assert [item.trip_id for item in data.scheduled[("X", "10", 0)]] == ["bus-1"]
+
+
+def test_load_static_cache_depends_on_extra_routes(
+    gtfs_zip: Path, tmp_path: Path
+) -> None:
+    """Choosing another bus line parses the archive again."""
+    cache = tmp_path / "static.pickle"
+    parse = gtfs_static.parse_static
+    with patch.object(gtfs_static, "parse_static", side_effect=parse) as mock:
+        load_static(gtfs_zip, cache, set())
+        load_static(gtfs_zip, cache, set(), {"10"})
+        load_static(gtfs_zip, cache, set(), {"10"})
+    assert mock.call_count == 2

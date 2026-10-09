@@ -1,5 +1,7 @@
 """Parsing of the static TaM GTFS archive, reduced to the tram network.
 
+Bus lines chosen by the user are parsed as well, as extra routes.
+
 This module has no Home Assistant dependency so it can be unit tested and
 run from scripts.
 """
@@ -23,7 +25,7 @@ import unicodedata
 import zipfile
 from zoneinfo import ZoneInfo
 
-from .const import TRAM_ROUTE_TYPE
+from .const import BUS_ROUTE_TYPE, TRAM_ROUTE_TYPE
 
 type LineKey = tuple[str, int]
 """(route_id, direction_id)"""
@@ -34,13 +36,24 @@ type StopKey = tuple[str, str, int]
 
 @dataclass(frozen=True, slots=True)
 class Route:
-    """A tram line."""
+    """A tram or bus line."""
 
     route_id: str
     short_name: str
     long_name: str
     color: str
     text_color: str
+    route_type: str = TRAM_ROUTE_TYPE
+
+    @property
+    def is_tram(self) -> bool:
+        """Return whether the line is a tram line."""
+        return self.route_type == TRAM_ROUTE_TYPE
+
+    @property
+    def kind(self) -> str:
+        """Return what runs on the line: "Tram" or "Bus"."""
+        return "Tram" if self.is_tram else "Bus"
 
 
 @dataclass(frozen=True, slots=True)
@@ -66,10 +79,11 @@ class ScheduledStop:
 
 @dataclass(slots=True)
 class StaticData:
-    """Tram subset of the GTFS archive."""
+    """Tram subset of the GTFS archive, plus the bus lines chosen by the user."""
 
     timezone: ZoneInfo
     routes: dict[str, Route]
+    """Tram lines and the chosen extra lines."""
     stop_names: dict[str, str]
     trips: dict[str, TripInfo]
     services_by_date: dict[date, frozenset[str]]
@@ -85,6 +99,8 @@ class StaticData:
     """Directions of circular lines: True when running clockwise on the map."""
     variants: dict[LineKey, str] = field(default_factory=dict)
     """Letter naming a direction of a circular line, "a" for line "4a"."""
+    other_routes: dict[str, Route] = field(default_factory=dict)
+    """Bus lines of the archive that were not chosen, offered as extra lines."""
 
     def services_on(self, day: date) -> frozenset[str]:
         """Return the service ids running on a given day."""
@@ -99,6 +115,11 @@ class StaticData:
         route = self.routes.get(route_id)
         name = route.short_name if route else route_id
         return name + self.variants.get((route_id, direction_id), "")
+
+    def line_kind(self, route_id: str) -> str:
+        """Return "Tram" or "Bus" for a line."""
+        route = self.routes.get(route_id)
+        return route.kind if route else "Tram"
 
     def direction_label(self, route_id: str, direction_id: int) -> str:
         """Return the label of a direction, falling back to its terminus."""
@@ -222,13 +243,15 @@ def _is_clockwise(
 def parse_static(
     source: str | Path | IO[bytes],
     monitored_stops: Iterable[str] = (),
+    extra_routes: Iterable[str] = (),
 ) -> StaticData:
-    """Parse a GTFS archive, keeping only tram data.
+    """Parse a GTFS archive, keeping the tram data and the ``extra_routes`` lines.
 
     Scheduled passages are only extracted for ``monitored_stops`` to keep the
     memory footprint small.
     """
     monitored = set(monitored_stops)
+    extra = set(extra_routes)
     with zipfile.ZipFile(source) as archive:
         timezone = ZoneInfo("Europe/Paris")
         for row in _read_csv(archive, "agency.txt"):
@@ -237,16 +260,23 @@ def parse_static(
             break
 
         routes: dict[str, Route] = {}
+        other_routes: dict[str, Route] = {}
         for row in _read_csv(archive, "routes.txt"):
-            if row.get("route_type") != TRAM_ROUTE_TYPE:
+            route_type = row.get("route_type", "")
+            if route_type not in (TRAM_ROUTE_TYPE, BUS_ROUTE_TYPE):
                 continue
-            routes[row["route_id"]] = Route(
+            route = Route(
                 route_id=row["route_id"],
                 short_name=row.get("route_short_name") or row["route_id"],
                 long_name=row.get("route_long_name", ""),
                 color=(row.get("route_color") or "000000").upper(),
                 text_color=(row.get("route_text_color") or "FFFFFF").upper(),
+                route_type=route_type,
             )
+            if route_type == TRAM_ROUTE_TYPE or route.route_id in extra:
+                routes[route.route_id] = route
+            else:
+                other_routes[route.route_id] = route
 
         trips: dict[str, TripInfo] = {}
         headsigns: dict[LineKey, Counter[str]] = defaultdict(Counter)
@@ -415,20 +445,25 @@ def parse_static(
         scheduled=dict(scheduled),
         clockwise=clockwise,
         variants={key: suffix.strip().lower() for key, suffix in suffixes.items()},
+        other_routes=other_routes,
     )
 
 
 # Bump when the parsing changes without changing the fields of StaticData.
-_CACHE_VERSION = 1
+_CACHE_VERSION = 2
 
 
 def load_static(
-    archive_path: Path, cache_path: Path, monitored_stops: Iterable[str]
+    archive_path: Path,
+    cache_path: Path,
+    monitored_stops: Iterable[str],
+    extra_routes: Iterable[str] = (),
 ) -> StaticData:
     """Parse the GTFS archive, reusing the result cached by a previous run.
 
     The cache is written next to the archive by this integration only; it is
-    used again as long as the archive and the monitored stops are unchanged.
+    used again as long as the archive, the monitored stops and the extra
+    lines are unchanged.
     """
     stat = archive_path.stat()
     key = (
@@ -437,6 +472,7 @@ def load_static(
         stat.st_mtime_ns,
         stat.st_size,
         tuple(sorted(set(monitored_stops))),
+        tuple(sorted(set(extra_routes))),
     )
     try:
         with cache_path.open("rb") as file:
@@ -454,7 +490,7 @@ def load_static(
         ValueError,
     ):
         pass  # Missing, outdated or unreadable: parse the archive again.
-    data = parse_static(archive_path, monitored_stops)
+    data = parse_static(archive_path, monitored_stops, extra_routes)
     try:
         tmp = cache_path.with_suffix(".tmp")
         tmp.write_bytes(pickle.dumps((key, data), pickle.HIGHEST_PROTOCOL))

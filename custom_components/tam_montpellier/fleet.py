@@ -82,7 +82,9 @@ def trip_update_vehicles(
 def fleet_lines(static: StaticData) -> list[FleetLine]:
     """Return the lines whose trams are counted, each way of a circular one apart."""
     lines: list[FleetLine] = []
-    for route_id in static.routes:
+    for route_id, route in static.routes.items():
+        if not route.is_tram:
+            continue  # Only trams are counted.
         directions = sorted(d for r, d in static.variants if r == route_id)
         lines.extend((route_id, d) for d in directions or [None])
     return lines
