@@ -1,4 +1,4 @@
-# TaM Montpellier – tramway pour Home Assistant
+# TaM Montpellier pour Home Assistant
 
 <img src="custom_components/tam_montpellier/brand/icon@2x.png" alt="Icône" width="128" align="right">
 
@@ -6,199 +6,107 @@
 [![Validate](https://github.com/3615nulsi/ha-tam-montpellier/actions/workflows/validate.yml/badge.svg)](https://github.com/3615nulsi/ha-tam-montpellier/actions/workflows/validate.yml)
 [![Tests](https://github.com/3615nulsi/ha-tam-montpellier/actions/workflows/tests.yml/badge.svg)](https://github.com/3615nulsi/ha-tam-montpellier/actions/workflows/tests.yml)
 
-> **English summary** — Home Assistant integration for the **Montpellier
-> tramway (TaM, France)**, built on the official GTFS / GTFS-RT open data.
-> Pick stops from the UI (line → direction → stop) and get real-time next
-> departures (rounded down so you never miss the tram), the next tram's
-> destination, service disruption sensors and a TaM-styled Lovelace card.
-> The rest of this documentation is in French, like its users.
-
-Intégration Home Assistant qui affiche les **prochains passages du tramway de
-Montpellier** aux arrêts de votre choix, à partir de l'open data temps réel de la
-TaM ([jeu de données](https://data.montpellier3m.fr/dataset/offre-de-transport-tam-en-temps-reel),
-licence ODbL).
-
-## Installation
-
-### Avec HACS (recommandé)
-
-[![Ouvrir dans HACS](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=3615nulsi&repository=ha-tam-montpellier&category=integration)
-
-Ou manuellement : *HACS → ⋮ → Dépôts personnalisés*, ajouter
-`https://github.com/3615nulsi/ha-tam-montpellier` (type *Intégration*),
-installer **TaM Montpellier**, puis redémarrer Home Assistant.
-
-### Manuelle
-
-Copier `custom_components/tam_montpellier` dans le dossier `custom_components`
-de votre configuration, puis redémarrer Home Assistant.
-
-Home Assistant 2026.2 ou plus récent est requis ; l'icône de l'intégration
-s'affiche à partir de 2026.3.
-
-## Configuration
-
-1. [![Ajouter l'intégration](https://my.home-assistant.io/badges/config_flow_start.svg)](https://my.home-assistant.io/redirect/config_flow_start/?domain=tam_montpellier)
-   ou *Paramètres → Appareils et services → Ajouter une intégration → TaM Montpellier*.
-   Les adresses des flux proposées par défaut conviennent.
-2. Sur la page de l'intégration, **Ajouter un arrêt** : choisir la ligne, la
-   direction, puis l'arrêt. Recommencer pour chaque arrêt à suivre.
-
-### Lignes de bus (option)
-
-Seul le tramway est proposé par défaut. Pour suivre aussi des lignes de bus de
-la TaM (flux GTFS identique) : *Paramètres → Appareils et services → TaM
-Montpellier → Configurer*, choisir les lignes de bus voulues (ex. la 22), puis
-**Ajouter un arrêt** : elles apparaissent dans la liste des lignes, avec
-« Bus » à la place de « Tram ». Les capteurs sont les mêmes (minutes avant le
-prochain passage, destination, perturbations). Le compteur de véhicules en
-service ne concerne que le tramway. Une ligne dont un arrêt est suivi ne peut
-pas être retirée de la liste.
-
-**Choisissez seulement les lignes dont vous avez besoin.** Chaque ligne cochée
-est chargée en mémoire à chaque analyse du GTFS (au démarrage, puis une fois
-par jour). Mesuré sur le jeu de données réel : le tram seul ≈ 34 Mo de pic, avec
-la ligne 22 ≈ 36 Mo, avec les 40 lignes de bus ≈ 79 Mo. Sur un petit appareil
-(Raspberry Pi 3), ne cochez que quelques lignes.
-
-**Couleurs.** Chaque ligne de bus reprend sa couleur officielle du GTFS
-(`route_color` / `route_text_color`), exposée dans les attributs `line_color` et
-`line_text_color` et utilisée par la carte (ex. bus 22 : bleu clair `#81CFF4`,
-texte noir). Ce sont les couleurs de la TaM, sans correction ; la carte
-assombrit ou éclaircit seulement la couleur utilisée comme texte pour rester
-lisible. Le filigrane de livrée n'existe que pour les lignes de tram.
-
-Chaque arrêt suivi devient un appareil (ex. « Comédie → Mosson (Tram 1) ») avec :
-
-| Entité | Description |
-|---|---|
-| `sensor.…_minutes_avant_le_prochain_passage` | **Minutes avant le prochain tram, arrondies à l'inférieur** : l'affichage à privilégier |
-| `sensor.…_prochain_passage` | Heure exacte du prochain passage |
-| `sensor.…_passage_suivant` | Heure exacte du passage d'après |
-| `sensor.…_destination_du_prochain_passage` | Destination du prochain tram, telle qu'affichée à l'avant de la rame. Utile sur les lignes à branches (T3 : Lattes ou Pérols) et en cas de service modifié (terminus partiel) |
-
-**Arrondi « pour ne pas rater le tram ».** Les minutes sont toujours arrondies à
-l'inférieur et mises à jour à la seconde exacte où elles changent. Quand le
-capteur annonce « 2 min », il reste donc au moins 2 minutes : en partant à ce
-moment-là, on arrive en avance, jamais en retard. À l'inverse, l'affichage
-« dans X minutes » que Home Assistant génère pour les capteurs d'heure arrondit
-au plus proche et ne se rafraîchit qu'une fois par minute. Il peut surestimer
-le temps restant jusqu'à 1 min 30 : préférez le capteur minutes pour décider
-quand partir.
-
-| `binary_sensor.…_perturbation` | Allumé quand une alerte trafic TaM en cours concerne la ligne, l'arrêt ou tout le réseau |
-| `sensor.…_message_de_perturbation` | Texte des alertes en cours (séparées par « • »), ou « Aucune perturbation ». Tronqué à 255 caractères, limite de HA ; le texte complet est dans l'attribut `full_message` |
-
-**Ligne 4 circulaire.** Ses deux sens sont présentés comme deux lignes : **4a**
-(sens horaire) et **4b** (sens antihoraire). À l'ajout d'un arrêt, chaque sens
-indique quelques arrêts traversés pour s'y retrouver, et l'appareil est nommé
-par exemple « Corum (Tram 4a) ».
-
-Attributs : `line` (`4a` ou `4b` pour la ligne 4), `line_color`, `destination`,
-`delay` (minutes) et `source`. Sur la ligne 4, `clockwise` indique le sens de
-rotation.
-Le capteur minutes porte aussi `departures`, les 6 prochains passages avec
-leurs minutes restantes, calculées selon le même arrondi.
-
-`source` indique la fiabilité de l'horaire :
-
-- `realtime` : heure annoncée par le temps réel pour cet arrêt ;
-- `estimated` : tram pas encore parti de son terminus, horaire théorique décalé
-  du retard annoncé au départ ;
-- `scheduled` : horaire théorique, sans information temps réel.
-
-Si le flux temps réel est indisponible, les capteurs basculent sur les horaires
-théoriques plutôt que de devenir indisponibles.
-
-Le capteur **Perturbation** expose `message` (le texte de la première alerte) et
-`alerts`, la liste des alertes en cours avec leur message, leur fin prévue et
-leur code interne TaM (`title`). Si le flux d'alertes est momentanément
-injoignable, les dernières alertes connues sont conservées.
-
-### Rames en service
-
-Chaque ligne est aussi un appareil (« Tram 1 », …, « Tram 4a », « Tram 4b »)
-avec un capteur `sensor.tram_1_rames_en_service` : le nombre de rames en
-service sur la ligne, d'après les numéros de rame que donnent les flux temps
-réel. Ses statistiques retracent la journée de la ligne.
-
-Une rame qui attend au terminus peut disparaître des flux jusqu'à un quart
-d'heure : elle reste comptée **20 minutes** après sa dernière apparition. Le
-compte est ainsi stable, et une rame qui rentre au dépôt en sort avec ce
-délai. Après un redémarrage, le compte remonte pendant ce même délai.
-
-Attributs : `running`, les rames présentes dans les flux à l'instant même, et
-`vehicles`, les numéros des rames comptées. Sur la ligne 4, chaque sens (4a,
-4b) est compté à part.
-
-## Exemples
-
-### Tableau de départs (carte Markdown)
-
-```yaml
-type: markdown
-content: >
-  {% set s = 'sensor.comedie_mosson_tram_1_minutes_avant_le_prochain_passage' %}
-  ### Tram {{ state_attr(s, 'line') }} · Comédie
-  Prochain : **{{ states('sensor.comedie_mosson_tram_1_destination_du_prochain_passage') }}**
-  {% for d in state_attr(s, 'departures') or [] %}
-  - **{{ d.minutes }} min** → {{ d.destination }}
-    {%- if d.source == 'scheduled' %} _(théorique)_{% endif %}
-    {%- if d.delay %} · retard {{ d.delay }} min{% endif %}
-  {% endfor %}
-```
-
-### Carte « afficheur de quai »
-
-L'intégration fournit sa propre carte, aux couleurs officielles de chaque
-ligne : bandeau de ligne, compte à rebours en grand, voyant temps réel, trams
-suivants en pastilles, nombre de rames en service sur la ligne et bandeau
-d'alerte en cas de perturbation. Rien à installer en plus. Le bandeau porte en
-filigrane un motif inspiré de la livrée de chaque ligne ; sur la ligne 4, un
-pictogramme y indique le sens de rotation.
+Dans combien de temps passe le prochain tram ? Cette intégration répond depuis
+votre tableau de bord Home Assistant, pour les arrêts que vous choisissez, en
+temps réel. Elle utilise l'[open data de la TaM](https://data.montpellier3m.fr/dataset/offre-de-transport-tam-en-temps-reel)
+et fournit une carte qui reprend le style des afficheurs de quai.
 
 ![Cartes « afficheur de quai » des cinq lignes de tramway](assets/cartes.png)
 
-1. Tableau de bord → ✏️ Modifier → **Ajouter une carte**.
-2. Cherchez **« TaM – Afficheur de quai »**.
-3. Choisissez l'**arrêt** dans la liste. C'est tout.
+> *In English: real-time departures for the Montpellier tramway (TaM, France),
+> with a platform-display card. The docs are in French, like its users.*
 
-En YAML :
+## Installation
+
+Avec HACS, en un clic :
+
+[![Ouvrir dans HACS](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=3615nulsi&repository=ha-tam-montpellier&category=integration)
+
+Installez **TaM Montpellier**, puis redémarrez Home Assistant.
+
+Sans HACS, copiez le dossier `custom_components/tam_montpellier` dans le
+`custom_components` de votre configuration et redémarrez.
+
+Home Assistant 2026.2 minimum (l'icône apparaît à partir de 2026.3).
+
+## Ajouter vos arrêts
+
+1. Ajoutez l'intégration :
+   [![Ajouter l'intégration](https://my.home-assistant.io/badges/config_flow_start.svg)](https://my.home-assistant.io/redirect/config_flow_start/?domain=tam_montpellier)
+   Les réglages proposés conviennent, validez.
+2. Sur la page de l'intégration, cliquez sur **Ajouter un arrêt**, puis
+   choisissez la ligne, la direction et l'arrêt.
+
+Recommencez pour chaque arrêt. Chacun devient un appareil, par exemple
+« Comédie → Mosson (Tram 1) », avec ces capteurs :
+
+- **Minutes avant le prochain passage** : c'est celui à regarder (voir plus bas pourquoi) ;
+- **Prochain passage** et **Passage suivant** : les heures exactes ;
+- **Destination du prochain passage** : pratique sur la ligne 3 (Lattes ou
+  Pérols ?) ou quand un tram s'arrête avant le terminus ;
+- **Perturbation** et **Message de perturbation** : s'allument quand une alerte
+  TaM concerne la ligne, l'arrêt ou tout le réseau.
+
+## La carte « afficheur de quai »
+
+Elle est livrée avec l'intégration, rien d'autre à installer. Tableau de bord →
+Modifier → **Ajouter une carte** → cherchez **« TaM – Afficheur de quai »** et
+choisissez votre arrêt.
+
+Vous y trouvez le compte à rebours, les trams suivants, le nombre de rames en
+service et un bandeau quand il y a une perturbation, le tout aux couleurs de la
+ligne.
+
+Si elle affiche « Erreur de configuration », rechargez la page (dans
+l'application mobile, tirez l'écran vers le bas).
+
+<details>
+<summary>En YAML</summary>
 
 ```yaml
 type: custom:tam-board-card
 device: <identifiant de l'appareil de l'arrêt>
+name: Comédie        # facultatif
+direction: Mosson    # facultatif
 ```
 
-Options facultatives : `name` (nom de l'arrêt affiché) et `direction`
-(direction affichée).
+</details>
 
-L'intégration déclare elle-même sa carte dans les ressources des tableaux de
-bord (Paramètres → Tableaux de bord → Ressources) et la recrée au démarrage si
-elle a été supprimée. Si vos ressources sont définies en YAML, elle charge la
-carte autrement : rien à déclarer non plus.
+## Bon à savoir
 
-**Dépannage** : si la carte affiche « Erreur de configuration », rechargez la
-page (dans l'application mobile, tirez l'écran vers le bas).
+**Les minutes sont arrondies à l'inférieur.** Si le capteur affiche « 2 min »,
+il reste au moins 2 minutes : en partant maintenant, vous serez à l'heure. Le
+« dans X minutes » que Home Assistant affiche pour un capteur d'heure arrondit
+au plus proche et peut se tromper d'une minute et demie. Pour savoir quand
+partir, fiez-vous au capteur minutes.
 
-### Bandeau de perturbation (affiché seulement en cas d'alerte)
+**La ligne 4 est coupée en deux.** Comme elle tourne en rond, chaque sens est
+une ligne à part : **4a** (sens horaire) et **4b** (sens antihoraire).
 
-```yaml
-type: conditional
-conditions:
-  - condition: state
-    entity: binary_sensor.comedie_mosson_tram_1_perturbation
-    state: "on"
-card:
-  type: markdown
-  content: >
-    ⚠️ {{ state_attr('sensor.comedie_mosson_tram_1_message_de_perturbation', 'full_message') }}
-```
+**Pas de temps réel ? Pas de panique.** Si le flux temps réel ne répond plus,
+les capteurs affichent les horaires théoriques au lieu de devenir
+indisponibles.
 
-### « Il est temps de partir »
+**Les travaux sont pris en compte tout seuls.** Les horaires de travaux
+arrivent avec les données publiées chaque nuit par la TaM. Si les trams partent
+d'un autre quai du même arrêt, vous les voyez quand même.
 
-Notification quand le prochain tram passe dans 8 minutes (temps de marche
-jusqu'à l'arrêt) :
+**Le bus aussi, si vous voulez.** Seul le tram est proposé au départ. Dans
+*Configurer* sur la page de l'intégration, cochez les lignes de bus qui vous
+intéressent (la 22, par exemple), puis ajoutez leurs arrêts comme pour le tram.
+Ne cochez que celles dont vous avez besoin : chaque ligne prend de la mémoire
+(environ 34 Mo pour le tram seul, 79 Mo avec tous les bus), ce qui compte sur
+un Raspberry Pi.
+
+**Les rames en service.** Chaque ligne de tram a aussi son appareil
+(« Tram 1 », …) avec le nombre de rames qui circulent. Une rame qui patiente au
+terminus peut disparaître un moment des données : elle reste comptée 20 minutes.
+
+## Quelques idées
+
+### Être prévenu quand il est temps de partir
+
+Une notification quand le prochain tram passe dans moins de 9 minutes :
 
 ```yaml
 triggers:
@@ -213,28 +121,88 @@ actions:
         dans {{ states(trigger.entity_id) }} min, c'est le moment de partir.
 ```
 
-## Fonctionnement
+### Afficher les perturbations seulement quand il y en a
 
-- Les flux temps réel (GTFS-RT `TripUpdate`, `VehiclePosition` et `Alert`) sont interrogés toutes les 30 secondes.
-- Les horaires théoriques (GTFS, environ 8 Mo) sont téléchargés au démarrage puis
-  chaque nuit à 3 h 30, et mis en cache dans `.storage/tam_montpellier/` avec le
-  résultat de leur analyse : un redémarrage ne les analyse pas à nouveau. Seul le
-  tram est conservé en mémoire.
-- Le flux TaM ne détaille les trajets qu'une fois la rame partie de son terminus.
-  Pour un arrêt en milieu de ligne, les passages suivants sont donc estimés à
-  partir de l'horaire théorique et du retard annoncé au terminus.
-- Les horaires des travaux arrivent avec ce GTFS quotidien : il n'y a rien à
-  mettre à jour. Un arrêt est suivi sur tous ses quais du même nom, pour la
-  ligne et le sens choisis : si des travaux font partir les trams d'un autre
-  quai, l'appareil affiche quand même ces départs. C'est le cas de Pompignane
-  sur la ligne 4 pendant les travaux de rails d'octobre 2026. Un tram qui
-  arrive au bout de son trajet n'est pas compté comme un départ, et la liste
-  des arrêts proposés à l'ajout ne contient pas ceux d'où aucun tram ne part.
-- Avec les journaux de débogage activés, chaque arrêt suivi indique au
-  chargement du GTFS ses quais, son nombre de départs théoriques et le
-  prochain d'entre eux.
+```yaml
+type: conditional
+conditions:
+  - condition: state
+    entity: binary_sensor.comedie_mosson_tram_1_perturbation
+    state: "on"
+card:
+  type: markdown
+  content: >
+    ⚠️ {{ state_attr('sensor.comedie_mosson_tram_1_message_de_perturbation', 'full_message') }}
+```
 
-## Développement
+### Un tableau de départs fait maison
+
+```yaml
+type: markdown
+content: >
+  {% set s = 'sensor.comedie_mosson_tram_1_minutes_avant_le_prochain_passage' %}
+  ### Tram {{ state_attr(s, 'line') }} · Comédie
+  {% for d in state_attr(s, 'departures') or [] %}
+  - **{{ d.minutes }} min** → {{ d.destination }}
+    {%- if d.source == 'scheduled' %} _(théorique)_{% endif %}
+    {%- if d.delay %} · retard {{ d.delay }} min{% endif %}
+  {% endfor %}
+```
+
+## Pour les curieux
+
+<details>
+<summary>Les attributs des capteurs</summary>
+
+Capteurs de passage :
+
+- `line` (`4a` ou `4b` sur la ligne 4), `line_color`, `line_text_color`,
+  `destination`, `delay` (en minutes) ;
+- `clockwise` sur la ligne 4 ;
+- `source`, la fiabilité de l'horaire :
+  - `realtime` : annoncé par le temps réel pour cet arrêt,
+  - `estimated` : tram pas encore parti du terminus, horaire théorique décalé
+    du retard annoncé,
+  - `scheduled` : horaire théorique seul ;
+- `departures` (capteur minutes uniquement) : les 6 prochains passages, avec le
+  même arrondi.
+
+Capteurs de perturbation :
+
+- `message` : le texte de la première alerte ;
+- `full_message` : le texte complet (l'état est coupé à 255 caractères) ;
+- `alerts` : toutes les alertes en cours, avec leur fin prévue et leur code TaM
+  (`title`). Si le flux d'alertes décroche, les dernières connues restent.
+
+Rames en service (`sensor.tram_1_rames_en_service`, …) :
+
+- `running` : les rames visibles dans les données à l'instant ;
+- `vehicles` : les numéros des rames comptées.
+
+Pour les bus, les couleurs sont celles du GTFS de la TaM ; la carte ajuste
+seulement la couleur du texte pour qu'il reste lisible.
+
+</details>
+
+<details>
+<summary>Comment ça marche</summary>
+
+- Le temps réel (GTFS-RT : trajets, positions des véhicules, alertes) est lu
+  toutes les 30 secondes.
+- Les horaires théoriques (GTFS, environ 8 Mo) sont téléchargés au démarrage
+  puis chaque nuit à 3 h 30, et gardés en cache dans
+  `.storage/tam_montpellier/` pour que les redémarrages soient rapides.
+- La TaM ne publie le détail d'un trajet qu'une fois la rame partie du
+  terminus. Pour un arrêt au milieu de la ligne, les passages plus lointains
+  sont donc estimés à partir de l'horaire et du retard au départ.
+- Un tram qui termine son trajet à votre arrêt n'est pas compté comme un
+  départ, et les arrêts d'où aucun tram ne part ne sont pas proposés.
+- Avec les journaux de débogage activés, chaque arrêt indique au chargement ses
+  quais, son nombre de départs prévus et le prochain d'entre eux.
+
+</details>
+
+## Mettre les mains dedans
 
 ```bash
 uv venv --python 3.13 .venv
@@ -242,30 +210,30 @@ uv pip install --python .venv/bin/python -r requirements_test.txt
 .venv/bin/python -m pytest
 ```
 
-Tableau de départs en direct depuis les vrais flux, sans Home Assistant :
+Deux scripts utiles, sans Home Assistant :
 
 ```bash
 .venv/bin/python scripts/live_board.py "Comédie" --line 1
 ```
 
-Vérification du GTFS publié par la TaM : lignes reconnues, directions,
-arrêts proposés sans départ, correspondance avec le temps réel. Le script
-liste aussi les travaux présents dans l'archive. GitHub Actions le lance
-chaque matin (workflow « GTFS watch ») : un échec signale un changement des
-données que l'intégration lirait mal, avant que les utilisateurs le voient.
+affiche les départs en direct d'un arrêt, et
 
 ```bash
 .venv/bin/python scripts/check_gtfs.py
 ```
 
-L'icône rend hommage aux livrées des rames montpelliéraines, les hirondelles
-de la ligne 1 et les fleurs de la ligne 2 dessinées par Garouste & Bonetti. Source :
-[`assets/icon.svg`](assets/icon.svg). Elle s'affiche dans Home Assistant 2026.3+.
+vérifie que les données publiées par la TaM sont toujours bien comprises
+(lignes, directions, arrêts, travaux en cours). GitHub Actions le lance chaque
+matin pour repérer un changement avant qu'il ne gêne quelqu'un.
 
-## Licence
+## Crédits et licence
 
-Code sous licence [MIT](LICENSE). Projet indépendant, non affilié à TaM ni à
-Montpellier Méditerranée Métropole.
+L'icône rend hommage aux livrées des trams de Montpellier dessinées par
+Garouste & Bonetti : les hirondelles de la ligne 1 et les fleurs de la ligne 2
+([source](assets/icon.svg)).
 
-Données : © TaM / Montpellier Méditerranée Métropole, licence
+Code sous licence [MIT](LICENSE). Projet indépendant, sans lien avec la TaM ni
+avec Montpellier Méditerranée Métropole.
+
+Données © TaM / Montpellier Méditerranée Métropole, sous licence
 [ODbL](https://opendatacommons.org/licenses/odbl/).
