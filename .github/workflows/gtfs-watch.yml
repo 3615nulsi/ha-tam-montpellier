@@ -1,0 +1,27 @@
+name: GTFS watch
+
+# TaM publishes works in its GTFS archive a few days ahead, regenerated each
+# night. Every morning, check that the integration still reads it right and
+# list the works found (see the job summary). A failed run means a parsing
+# assumption broke: fix it before users report it.
+
+on:
+  schedule:
+    - cron: "0 5 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+      - name: Install the integration requirements
+        run: pip install $(jq -r '.requirements[]' custom_components/tam_montpellier/manifest.json)
+      - name: Check the live GTFS archive
+        run: python scripts/check_gtfs.py

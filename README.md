@@ -248,6 +248,16 @@ Tableau de départs en direct depuis les vrais flux, sans Home Assistant :
 .venv/bin/python scripts/live_board.py "Comédie" --line 1
 ```
 
+Vérification du GTFS publié par la TaM : lignes reconnues, directions,
+arrêts proposés sans départ, correspondance avec le temps réel. Le script
+liste aussi les travaux présents dans l'archive. GitHub Actions le lance
+chaque matin (workflow « GTFS watch ») : un échec signale un changement des
+données que l'intégration lirait mal, avant que les utilisateurs le voient.
+
+```bash
+.venv/bin/python scripts/check_gtfs.py
+```
+
 L'icône rend hommage aux livrées des rames montpelliéraines, les hirondelles
 de la ligne 1 et les fleurs de la ligne 2 dessinées par Garouste & Bonetti. Source :
 [`assets/icon.svg`](assets/icon.svg). Elle s'affiche dans Home Assistant 2026.3+.

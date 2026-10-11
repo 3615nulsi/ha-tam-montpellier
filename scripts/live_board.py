@@ -20,7 +20,7 @@ ROOT = Path(__file__).resolve().parents[1]
 PACKAGE_DIR = ROOT / "custom_components" / "tam_montpellier"
 
 
-def _load_pure_modules() -> tuple[types.ModuleType, ...]:
+def load_pure_modules() -> tuple[types.ModuleType, ...]:
     """Load the HA-independent modules without importing the integration package."""
     package = types.ModuleType("tam_montpellier")
     package.__path__ = [str(PACKAGE_DIR)]
@@ -38,7 +38,7 @@ def _load_pure_modules() -> tuple[types.ModuleType, ...]:
 
 
 def main() -> None:
-    const, gtfs_static, departures, fleet = _load_pure_modules()
+    const, gtfs_static, departures, fleet = load_pure_modules()
     parser = argparse.ArgumentParser()
     parser.add_argument("stop", help="stop name (substring match)")
     parser.add_argument("--line", help="tram line (route_short_name)")

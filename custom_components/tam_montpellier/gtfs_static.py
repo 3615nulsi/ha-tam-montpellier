@@ -113,6 +113,19 @@ class StaticData:
         """Return the platforms of a stop: works may move its departures."""
         return self.platforms.get(stop_id, (stop_id,))
 
+    def offered_stops(self, route_id: str, direction_id: int) -> dict[str, str]:
+        """Return the stops to choose from on a line direction, name -> stop_id.
+
+        Each stop is offered once, whatever its platforms. The terminus is
+        left out, as any stop where all trips end: no tram departs from it.
+        """
+        key = (route_id, direction_id)
+        offered: dict[str, str] = {}
+        for stop_id in self.line_stops.get(key, []):
+            if stop_id not in self.arrivals.get(key, ()):
+                offered.setdefault(self.stop_names.get(stop_id, stop_id), stop_id)
+        return offered
+
     def services_on(self, day: date) -> frozenset[str]:
         """Return the service ids running on a given day."""
         return self.services_by_date.get(day, frozenset())
