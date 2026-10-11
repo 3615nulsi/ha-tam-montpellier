@@ -345,13 +345,7 @@ class StopSubentryFlowHandler(ConfigSubentryFlow):
                 unique_id=f"{stop_id}_{self._route_id}_{self._direction_id}",
             )
 
-        key = (self._route_id, self._direction_id)
-        # Each stop is offered once, whatever its platforms. The terminus is
-        # left out, as any stop where all trips end: no tram departs from it.
-        offered: dict[str, str] = {}
-        for stop_id in static.line_stops.get(key, []):
-            if stop_id not in static.arrivals.get(key, ()):
-                offered.setdefault(static.stop_names.get(stop_id, stop_id), stop_id)
+        offered = static.offered_stops(self._route_id, self._direction_id)
         return self.async_show_form(
             step_id="stop",
             data_schema=vol.Schema(
