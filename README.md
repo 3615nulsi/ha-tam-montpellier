@@ -223,6 +223,16 @@ actions:
 - Le flux TaM ne détaille les trajets qu'une fois la rame partie de son terminus.
   Pour un arrêt en milieu de ligne, les passages suivants sont donc estimés à
   partir de l'horaire théorique et du retard annoncé au terminus.
+- Les horaires des travaux arrivent avec ce GTFS quotidien : il n'y a rien à
+  mettre à jour. Un arrêt est suivi sur tous ses quais du même nom, pour la
+  ligne et le sens choisis : si des travaux font partir les trams d'un autre
+  quai, l'appareil affiche quand même ces départs. C'est le cas de Pompignane
+  sur la ligne 4 pendant les travaux de rails d'octobre 2026. Un tram qui
+  arrive au bout de son trajet n'est pas compté comme un départ, et la liste
+  des arrêts proposés à l'ajout ne contient pas ceux d'où aucun tram ne part.
+- Avec les journaux de débogage activés, chaque arrêt suivi indique au
+  chargement du GTFS ses quais, son nombre de départs théoriques et le
+  prochain d'entre eux.
 
 ## Développement
 

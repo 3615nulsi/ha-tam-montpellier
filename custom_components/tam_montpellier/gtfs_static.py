@@ -19,6 +19,7 @@ from operator import itemgetter
 from pathlib import Path
 import pickle
 import re
+from string import ascii_lowercase
 import sys
 from typing import IO
 import unicodedata
@@ -68,7 +69,7 @@ class TripInfo:
 
 @dataclass(frozen=True, slots=True)
 class ScheduledStop:
-    """A scheduled passage of a trip at a monitored stop."""
+    """A scheduled departure of a trip from a platform of a monitored stop."""
 
     trip_id: str
     service_id: str
@@ -93,14 +94,24 @@ class StaticData:
     """Human readable label (main destination) of each line and direction."""
     trip_starts: dict[str, tuple[str, int]] = field(default_factory=dict)
     """trip_id -> (first stop_id, scheduled departure in seconds)."""
+    trip_ends: dict[str, str] = field(default_factory=dict)
+    """trip_id -> last stop_id, where the trip arrives without departing."""
     scheduled: dict[StopKey, list[ScheduledStop]] = field(default_factory=dict)
-    """Scheduled passages, only for the monitored stops."""
+    """Scheduled departures, only for the platforms of the monitored stops."""
+    platforms: dict[str, tuple[str, ...]] = field(default_factory=dict)
+    """Monitored stop_id -> every stop_id of the same name, itself first."""
+    arrivals: dict[LineKey, frozenset[str]] = field(default_factory=dict)
+    """Stops of each line direction where all trips end: none departs."""
     clockwise: dict[LineKey, bool] = field(default_factory=dict)
     """Directions of circular lines: True when running clockwise on the map."""
     variants: dict[LineKey, str] = field(default_factory=dict)
     """Letter naming a direction of a circular line, "a" for line "4a"."""
     other_routes: dict[str, Route] = field(default_factory=dict)
     """Bus lines of the archive that were not chosen, offered as extra lines."""
+
+    def stop_platforms(self, stop_id: str) -> tuple[str, ...]:
+        """Return the platforms of a stop: works may move its departures."""
+        return self.platforms.get(stop_id, (stop_id,))
 
     def services_on(self, day: date) -> frozenset[str]:
         """Return the service ids running on a given day."""
@@ -169,30 +180,44 @@ def _read_columns(
 _MIN_PATTERN_SHARE = 0.01
 
 
-def _merge_stop_orders(patterns: Counter[tuple[str, ...]]) -> list[str]:
-    """Merge the stop patterns of a line direction into a single ordered list.
+def _significant_patterns(
+    patterns: Counter[tuple[str, ...]],
+) -> list[tuple[str, ...]]:
+    """Return the stop patterns of a line direction, its backbone first.
 
-    The longest (then most frequent) pattern is the backbone; stops only served
-    by other patterns are inserted after their predecessor.
+    The backbone is the longest (then most frequent) pattern: the whole line,
+    even while works cut it into shorter runs for part of the archive.
     """
     total = patterns.total()
-    ordered = sorted(
+    return sorted(
         (
-            (pattern, count)
+            pattern
             for pattern, count in patterns.items()
             if count >= total * _MIN_PATTERN_SHARE
         ),
-        key=lambda item: (-len(item[0]), -item[1]),
+        key=lambda pattern: (-len(pattern), -patterns[pattern]),
     )
+
+
+def _merge_stop_orders(ordered: list[tuple[str, ...]]) -> list[str]:
+    """Merge the stop patterns of a line direction into a single ordered list.
+
+    Stops only served by other patterns than the backbone are inserted after
+    their predecessor, or before their successor for the first stop of a run
+    starting off the line (another platform, a depot), so that the ends of
+    the backbone stay at the ends of the list.
+    """
     result: list[str] = []
-    for pattern, _count in ordered:
+    for pattern in ordered:
         for index, stop_id in enumerate(pattern):
             if stop_id in result:
                 continue
-            if index == 0:
-                result.insert(0, stop_id)
-            else:
+            if index > 0:
                 result.insert(result.index(pattern[index - 1]) + 1, stop_id)
+            elif len(pattern) > 1 and pattern[1] in result:
+                result.insert(result.index(pattern[1]), stop_id)
+            else:
+                result.insert(0, stop_id)
     return result
 
 
@@ -247,8 +272,8 @@ def parse_static(
 ) -> StaticData:
     """Parse a GTFS archive, keeping the tram data and the ``extra_routes`` lines.
 
-    Scheduled passages are only extracted for ``monitored_stops`` to keep the
-    memory footprint small.
+    Scheduled departures are only extracted for the platforms of
+    ``monitored_stops`` to keep the memory footprint small.
     """
     monitored = set(monitored_stops)
     extra = set(extra_routes)
@@ -331,9 +356,28 @@ def parse_static(
             date.fromisoformat(day): frozenset(ids) for day, ids in services.items()
         }
 
+        # Stops are read first: the departures of every platform named like a
+        # monitored stop are extracted, as works may move them there.
+        stop_rows = {row["stop_id"]: row for row in _read_csv(archive, "stops.txt")}
+        all_names = {
+            stop_id: row.get("stop_name", stop_id) for stop_id, row in stop_rows.items()
+        }
+        same_name: dict[str, list[str]] = defaultdict(list)
+        for stop_id, name in sorted(all_names.items()):
+            same_name[name].append(stop_id)
+        platforms = {
+            stop_id: (
+                stop_id,
+                *(p for p in same_name[all_names[stop_id]] if p != stop_id),
+            )
+            for stop_id in monitored
+            if stop_id in all_names
+        }
+        extracted = monitored.union(*platforms.values())
+
         trip_stops: dict[str, list[tuple[int, str]]] = defaultdict(list)
         trip_starts: dict[str, tuple[int, str, int]] = {}
-        scheduled: dict[StopKey, list[ScheduledStop]] = defaultdict(list)
+        passages: list[tuple[StopKey, int, ScheduledStop]] = []
         for trip_id, raw_stop_id, raw_sequence, departure, arrival in _read_columns(
             archive,
             "stop_times.txt",
@@ -359,15 +403,27 @@ def parse_static(
                     stop_id,
                     parse_gtfs_time(departure),
                 )
-            if stop_id in monitored:
-                scheduled[(stop_id, trip.route_id, trip.direction_id)].append(
-                    ScheduledStop(
-                        trip_id=trip_id,
-                        service_id=trip.service_id,
-                        departure=parse_gtfs_time(departure),
-                        headsign=trip.headsign,
+            if stop_id in extracted:
+                passages.append(
+                    (
+                        (stop_id, trip.route_id, trip.direction_id),
+                        sequence,
+                        ScheduledStop(
+                            trip_id=trip_id,
+                            service_id=trip.service_id,
+                            departure=parse_gtfs_time(departure),
+                            headsign=trip.headsign,
+                        ),
                     )
                 )
+
+        # A trip arrives at its last stop: it does not depart from it.
+        trip_ends = {trip_id: max(stops) for trip_id, stops in trip_stops.items()}
+        scheduled: dict[StopKey, list[ScheduledStop]] = defaultdict(list)
+        for stop_key, sequence, item in passages:
+            if sequence < trip_ends[item.trip_id][0]:
+                scheduled[stop_key].append(item)
+        del passages
 
         patterns: dict[LineKey, Counter[tuple[str, ...]]] = defaultdict(Counter)
         for trip_id, stops in trip_stops.items():
@@ -376,27 +432,33 @@ def parse_static(
             patterns[(trip.route_id, trip.direction_id)][pattern] += 1
         del trip_stops
 
-        used_stops = {
-            stop for counter in patterns.values() for p in counter for stop in p
-        }
-        stop_names: dict[str, str] = {}
-        positions: dict[str, tuple[float, float]] = {}
-        for row in _read_csv(archive, "stops.txt"):
-            if row["stop_id"] in used_stops:
-                stop_names[row["stop_id"]] = row.get("stop_name", row["stop_id"])
-                with suppress(KeyError, ValueError):
-                    positions[row["stop_id"]] = (
-                        float(row["stop_lon"]),
-                        float(row["stop_lat"]),
-                    )
+    used_stops = {stop for counter in patterns.values() for p in counter for stop in p}
+    stop_names = {
+        stop_id: all_names[stop_id] for stop_id in used_stops & all_names.keys()
+    }
+    positions: dict[str, tuple[float, float]] = {}
+    for stop_id in stop_names:
+        with suppress(KeyError, ValueError):
+            row = stop_rows[stop_id]
+            positions[stop_id] = (float(row["stop_lon"]), float(row["stop_lat"]))
 
-    line_stops = {key: _merge_stop_orders(p) for key, p in patterns.items()}
+    ordered = {key: _significant_patterns(p) for key, p in patterns.items()}
+    line_stops = {key: _merge_stop_orders(p) for key, p in ordered.items()}
+    arrivals = {
+        key: frozenset(
+            {pattern[-1] for pattern in p}
+            - {stop for pattern in p for stop in pattern[:-1]}
+        )
+        for key, p in ordered.items()
+    }
     for stop_list in scheduled.values():
         stop_list.sort(key=lambda item: item.departure)
     # Circular lines start and end at the same stop, on different platforms.
+    # Their backbone tells them, as works may cut the loop for a while.
+    backbones = {key: p[0] for key, p in ordered.items() if p}
     clockwise = {
         key: rotation
-        for key, stops in line_stops.items()
+        for key, stops in backbones.items()
         if len(stops) > 2
         and stop_names.get(stops[0]) == stop_names.get(stops[-1])
         and (rotation := _is_clockwise(stops, positions)) is not None
@@ -409,14 +471,28 @@ def parse_static(
 
     # Each direction of a circular line is presented as a line of its own,
     # named after the letter ending its headsigns: "Garcia Lorca A" runs on
-    # line "4a". The letter is then left out of the destinations.
+    # line "4a". The letter is then left out of the destinations. It is
+    # looked for in all the headsigns: unlettered ones, or those of runs cut
+    # short by works, may be the most common.
     suffixes: dict[LineKey, str] = {}
     for key in clockwise:
-        terminus = stop_names.get(line_stops[key][-1], "")
-        letter = directions[key].removeprefix(terminus).strip()
-        if directions[key].startswith(terminus) and len(letter) == 1:
-            suffixes[key] = f" {letter}"
-            directions[key] = terminus
+        terminus = stop_names.get(backbones[key][-1], "")
+        letters: Counter[str] = Counter()
+        for headsign, count in headsigns[key].items():
+            letter = headsign.removeprefix(terminus).strip()
+            if headsign.startswith(terminus) and len(letter) == 1:
+                letters[letter] += count
+        if letters:
+            suffixes[key] = f" {letters.most_common(1)[0][0]}"
+    variants = {key: suffix.strip().lower() for key, suffix in suffixes.items()}
+    # A line running both ways round needs a letter for each, even unlettered.
+    for key in sorted(clockwise):
+        ways = [other for other in clockwise if other[0] == key[0]]
+        if key not in variants and len(ways) > 1:
+            used = {variants.get(way) for way in ways}
+            variants[key] = next(c for c in ascii_lowercase if c not in used)
+    for key in variants:
+        directions[key] = stop_names.get(backbones[key][-1], "")
     if suffixes:
         for trip_id, trip in trips.items():
             if suffix := suffixes.get((trip.route_id, trip.direction_id)):
@@ -441,16 +517,19 @@ def parse_static(
             trip_id: (stop_id, departure)
             for trip_id, (_seq, stop_id, departure) in trip_starts.items()
         },
+        trip_ends={trip_id: stop_id for trip_id, (_seq, stop_id) in trip_ends.items()},
         directions=directions,
         scheduled=dict(scheduled),
+        platforms=platforms,
+        arrivals=arrivals,
         clockwise=clockwise,
-        variants={key: suffix.strip().lower() for key, suffix in suffixes.items()},
+        variants=variants,
         other_routes=other_routes,
     )
 
 
 # Bump when the parsing changes without changing the fields of StaticData.
-_CACHE_VERSION = 2
+_CACHE_VERSION = 3
 
 
 def load_static(

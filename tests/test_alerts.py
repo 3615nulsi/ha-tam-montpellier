@@ -25,6 +25,14 @@ def test_alert_matching() -> None:
         {"id": "network", "informed": [{"agency_id": "TAM"}]},
     )
     assert _ids(payload) == ["line", "stop", "network"]
+    # An alert on another platform of the stop concerns it too.
+    alerts = alerts_for(parse_alerts(payload), KEY, NOW, ("B", "C"))
+    assert [alert.alert_id for alert in alerts] == [
+        "line",
+        "stop",
+        "line_other_stop",
+        "network",
+    ]
 
 
 def test_alert_periods() -> None:

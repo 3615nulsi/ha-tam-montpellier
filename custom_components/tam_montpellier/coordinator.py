@@ -123,6 +123,30 @@ class TamCoordinator(DataUpdateCoordinator[dict[StopKey, list[Departure]]]):
             len(self.static.routes),
             len(self.static.trips),
         )
+        if _LOGGER.isEnabledFor(logging.DEBUG):
+            self._log_scheduled_departures()
+
+    def _log_scheduled_departures(self) -> None:
+        """Log what the archive offers at each monitored stop."""
+        now = dt_util.now()
+        for key in sorted(self.stop_keys):
+            stop_id, route_id, direction_id = key
+            platforms = self.static.stop_platforms(stop_id)
+            count = sum(
+                len(self.static.scheduled.get((platform, route_id, direction_id), ()))
+                for platform in platforms
+            )
+            upcoming = compute_departures(self.static, RealtimeSnapshot(), key, now, 1)
+            _LOGGER.debug(
+                "%s, line %s towards %s: %d scheduled departures from platforms %s,"
+                " next one %s",
+                self.static.stop_names.get(stop_id, stop_id),
+                self.static.line_name(route_id, direction_id),
+                self.static.direction_label(route_id, direction_id),
+                count,
+                ", ".join(platforms),
+                upcoming[0].time.isoformat() if upcoming else "none in the next day",
+            )
 
     async def _async_download_gtfs(self, force: bool) -> None:
         """Refresh the cached GTFS archive, keeping the old one on failure."""

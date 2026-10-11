@@ -147,8 +147,13 @@ def compute_departures(
     now: datetime,
     limit: int = 10,
 ) -> list[Departure]:
-    """Merge real-time and scheduled data into upcoming departures at a stop."""
+    """Merge real-time and scheduled data into upcoming departures at a stop.
+
+    All the platforms of the stop are considered, the trams of the line
+    direction departing from any of them: works may move them to another one.
+    """
     stop_id, route_id, direction_id = key
+    platforms = static.stop_platforms(stop_id)
     now_ts = now.timestamp()
     default_headsign = static.direction_label(route_id, direction_id)
     candidates: list[Departure] = []
@@ -165,36 +170,46 @@ def compute_departures(
         if trip.route_id != route_id or trip_direction != direction_id:
             continue
 
-        realtime_trips[trip.trip_id] = _terminus_update(static, trip, stop_id, now_ts)
-        if stop_id not in trip.times:
-            continue
-        timestamp, delay = trip.times[stop_id]
-        if timestamp < now_ts:
-            continue
-        if static_trip is not None and static_trip.headsign:
-            headsign = static_trip.headsign
-        elif trip.last_stop_id and trip.last_stop_id != stop_id:
-            headsign = static.stop_names.get(trip.last_stop_id, default_headsign)
-        else:
-            headsign = default_headsign
-        candidates.append(
-            Departure(
-                time=datetime.fromtimestamp(timestamp, static.timezone),
-                route_id=route_id,
-                headsign=headsign,
-                source=DepartureSource.REALTIME,
-                delay=delay,
-                trip_id=trip.trip_id,
+        realtime_trips[trip.trip_id] = _terminus_update(static, trip, platforms, now_ts)
+        # A trip arrives at its last stop, it does not depart from it.
+        end = static.trip_ends.get(trip.trip_id)
+        if end is None and len(trip.times) > 1:
+            end = trip.last_stop_id
+        for platform in platforms:
+            if platform not in trip.times or platform == end:
+                continue
+            timestamp, delay = trip.times[platform]
+            if timestamp < now_ts:
+                continue
+            if static_trip is not None and static_trip.headsign:
+                headsign = static_trip.headsign
+            elif trip.last_stop_id and trip.last_stop_id not in platforms:
+                headsign = static.stop_names.get(trip.last_stop_id, default_headsign)
+            else:
+                headsign = default_headsign
+            candidates.append(
+                Departure(
+                    time=datetime.fromtimestamp(timestamp, static.timezone),
+                    route_id=route_id,
+                    headsign=headsign,
+                    source=DepartureSource.REALTIME,
+                    delay=delay,
+                    trip_id=trip.trip_id,
+                )
             )
-        )
 
+    passages = [
+        scheduled
+        for platform in platforms
+        for scheduled in static.scheduled.get((platform, route_id, direction_id), ())
+    ]
     today = now.astimezone(static.timezone).date()
     for day in (today - timedelta(days=1), today, today + timedelta(days=1)):
         services = static.services_on(day)
         if not services:
             continue
         day_start = static.service_day_start(day)
-        for scheduled in static.scheduled.get(key, ()):
+        for scheduled in passages:
             if scheduled.service_id not in services:
                 continue
             when = day_start + timedelta(seconds=scheduled.departure)
@@ -237,10 +252,17 @@ def compute_departures(
 
 
 def _terminus_update(
-    static: StaticData, trip: RealtimeTrip, stop_id: str, now_ts: float
+    static: StaticData,
+    trip: RealtimeTrip,
+    platforms: tuple[str, ...],
+    now_ts: float,
 ) -> tuple[str, int, int | None] | None:
     """Return the terminus update of a trip that has not started yet."""
-    if len(trip.times) != 1 or stop_id in trip.times or stop_id in trip.skipped:
+    if (
+        len(trip.times) != 1
+        or not trip.times.keys().isdisjoint(platforms)
+        or not trip.skipped.isdisjoint(platforms)
+    ):
         return None
     ((first_stop, (timestamp, delay)),) = trip.times.items()
     if timestamp < now_ts - 60:

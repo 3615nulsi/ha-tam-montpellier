@@ -9,6 +9,7 @@ This module has no Home Assistant dependency.
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
@@ -126,6 +127,20 @@ def parse_alerts(payload: bytes) -> list[Alert]:
     return alerts
 
 
-def alerts_for(alerts: list[Alert], key: StopKey, now: datetime) -> list[Alert]:
-    """Return the active alerts concerning a stop, line and direction."""
-    return [alert for alert in alerts if alert.is_active(now) and alert.applies_to(key)]
+def alerts_for(
+    alerts: list[Alert],
+    key: StopKey,
+    now: datetime,
+    platforms: Iterable[str] = (),
+) -> list[Alert]:
+    """Return the active alerts concerning a stop, line and direction.
+
+    An alert on another of the ``platforms`` of the stop concerns it too.
+    """
+    _stop_id, route_id, direction_id = key
+    keys = [key, *((platform, route_id, direction_id) for platform in platforms)]
+    return [
+        alert
+        for alert in alerts
+        if alert.is_active(now) and any(alert.applies_to(k) for k in keys)
+    ]

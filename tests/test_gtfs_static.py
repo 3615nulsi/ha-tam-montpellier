@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 import os
 from pathlib import Path
 from unittest.mock import patch
@@ -9,11 +10,19 @@ import zipfile
 
 from custom_components.tam_montpellier import gtfs_static
 from custom_components.tam_montpellier.config_flow import _direction_option
+from custom_components.tam_montpellier.departures import (
+    DepartureSource,
+    RealtimeSnapshot,
+    compute_departures,
+    parse_trip_updates,
+)
 from custom_components.tam_montpellier.gtfs_static import (
     _read_columns,
     load_static,
     parse_static,
 )
+
+from .conftest import build_trip_updates, paris
 
 
 def test_read_columns_missing_column(tmp_path: Path) -> None:
@@ -58,18 +67,28 @@ def test_load_static_cache_invalidated(gtfs_zip: Path, tmp_path: Path) -> None:
     assert data.scheduled
 
 
-def _loop_gtfs(path: Path) -> Path:
+_LOOP_STOPS = {
+    "S0": ("Sud", 43.59, 3.88),
+    "W": ("Ouest - Place", 43.60, 3.87),
+    "N": ("Nord", 43.61, 3.88),
+    "E": ("Est", 43.60, 3.89),
+    "S1": ("Sud", 43.5901, 3.8801),
+}
+_LOOP_TRIPS = (("a", "Sud A", 0, "S0 W N E S1", 8), ("b", "Sud B", 1, "S1 E N W S0", 8))
+
+
+def _loop_gtfs(
+    path: Path,
+    stops: dict[str, tuple[str, float, float]] = _LOOP_STOPS,
+    trips: Iterable[tuple[str, str, int, str, int]] = _LOOP_TRIPS,
+) -> Path:
     """Write a circular line around a square, starting from its south corner.
 
     Direction 0 runs west, north, east and back south: clockwise on the map.
+    Each trip (id, headsign, direction, stops, hour) leaves at the given hour
+    and reaches a stop each minute.
     """
-    stops = {
-        "S0": ("Sud", 43.59, 3.88),
-        "W": ("Ouest - Place", 43.60, 3.87),
-        "N": ("Nord", 43.61, 3.88),
-        "E": ("Est", 43.60, 3.89),
-        "S1": ("Sud", 43.5901, 3.8801),
-    }
+    trips = list(trips)
     files = {
         "agency.txt": "agency_id,agency_name,agency_url,agency_timezone\n"
         "TAM,TaM,https://example.com,Europe/Paris\n",
@@ -79,11 +98,11 @@ def _loop_gtfs(path: Path) -> Path:
         + "".join(f"{i},{n},{lat},{lon}\n" for i, (n, lat, lon) in stops.items()),
         "calendar_dates.txt": "service_id,date,exception_type\nS,20260923,1\n",
         "trips.txt": "route_id,service_id,trip_id,trip_headsign,direction_id\n"
-        "4,S,a,Sud A,0\n4,S,b,Sud B,1\n",
+        + "".join(f"4,S,{trip},{headsign},{d}\n" for trip, headsign, d, *_ in trips),
         "stop_times.txt": "trip_id,arrival_time,departure_time,stop_id,stop_sequence\n"
         + "".join(
-            f"{trip},08:0{seq}:00,08:0{seq}:00,{stop},{seq}\n"
-            for trip, order in (("a", "S0 W N E S1"), ("b", "S1 E N W S0"))
+            f"{trip},{hour:02d}:0{seq}:00,{hour:02d}:0{seq}:00,{stop},{seq}\n"
+            for trip, _headsign, _d, order, hour in trips
             for seq, stop in enumerate(order.split())
         ),
     }
@@ -112,6 +131,79 @@ def test_circular_line_directions(tmp_path: Path, gtfs_zip: Path) -> None:
     assert static.clockwise == {}
     assert static.line_name("1", 0) == "1"
     assert _direction_option(static, "1", 0) == "Vers Delta (depuis Alpha)"
+
+
+def test_circular_line_cut_by_works(tmp_path: Path) -> None:
+    """Works cutting a loop for a while leave it circular, each way lettered.
+
+    Like line 4 during the 2026 rail works: shuttles from the platform of the
+    other way round at Est, through Sud, to Gamma off the loop, outnumber the
+    loop trips, most of which are listed without their letter.
+    """
+    stops = {
+        **_LOOP_STOPS,
+        "X": ("Xeres", 43.595, 3.888),
+        "E1": ("Est", 43.6001, 3.8901),
+        "G": ("Gamma", 43.60, 3.86),
+    }
+    trips = [
+        ("a", "Sud A", 0, "S0 W N E X S1", 8),
+        ("a2", "Sud", 0, "S0 W N E X S1", 10),
+        ("b", "Sud B", 1, "S1 X E1 N W S0", 8),
+        ("b2", "Sud", 1, "S1 X E1 N W S0", 10),
+        *((f"w{i}", "Gamma", 0, "E1 X S0 W G", 12 + i) for i in range(3)),
+        *((f"v{i}", "Est", 1, "G W S0 X E1", 12 + i) for i in range(3)),
+    ]
+    static = parse_static(_loop_gtfs(tmp_path / "works.zip", stops, trips), {"E", "S0"})
+    assert static.clockwise == {("4", 0): True, ("4", 1): False}
+    assert [static.line_name("4", 0), static.line_name("4", 1)] == ["4a", "4b"]
+    assert static.direction_label("4", 1) == "Sud"
+    # The shuttles join the loop where they meet it: its ends are kept.
+    assert static.line_stops[("4", 0)] == ["S0", "W", "G", "N", "E", "E1", "X", "S1"]
+    assert static.line_stops[("4", 1)] == ["S1", "X", "E1", "N", "G", "W", "S0"]
+    # No tram departs from where all trips end.
+    assert static.arrivals == {("4", 0): {"G", "S1"}, ("4", 1): frozenset()}
+
+    # Est is followed on both its platforms: the shuttles leave from the
+    # other one, in real time too.
+    assert static.stop_platforms("E") == ("E", "E1")
+    departures = compute_departures(
+        static, RealtimeSnapshot(), ("E", "4", 0), paris(7, 0)
+    )
+    assert [(dep.time, dep.headsign) for dep in departures] == [
+        (paris(8, 3), "Sud"),
+        (paris(10, 3), "Sud"),
+        (paris(12, 0), "Gamma"),
+        (paris(13, 0), "Gamma"),
+        (paris(14, 0), "Gamma"),
+    ]
+    payload = build_trip_updates(
+        {
+            "trip_id": "w0",
+            "route_id": "4",
+            "stops": [("E1", paris(12, 1), 60, False), ("X", paris(12, 2), 60, False)],
+        }
+    )
+    snapshot = parse_trip_updates(payload, set(static.routes))
+    departures = compute_departures(static, snapshot, ("E", "4", 0), paris(11, 30))
+    assert [(dep.time, dep.source) for dep in departures] == [
+        (paris(12, 1), DepartureSource.REALTIME),
+        (paris(13, 0), DepartureSource.SCHEDULED),
+        (paris(14, 0), DepartureSource.SCHEDULED),
+    ]
+
+    # At Sud the other way round, the loop trips leave from one platform and
+    # arrive at the other, where only the shuttles depart.
+    departures = compute_departures(
+        static, RealtimeSnapshot(), ("S0", "4", 1), paris(7, 0)
+    )
+    assert [(dep.time, dep.headsign) for dep in departures] == [
+        (paris(8, 0), "Sud"),
+        (paris(10, 0), "Sud"),
+        (paris(12, 2), "Est"),
+        (paris(13, 2), "Est"),
+        (paris(14, 2), "Est"),
+    ]
 
 
 def test_bus_lines_are_offered_not_loaded(gtfs_zip: Path) -> None:
