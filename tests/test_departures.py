@@ -192,6 +192,24 @@ def test_unknown_trip_uses_last_stop_as_destination(static: StaticData) -> None:
     assert extra.time == paris(8, 18)
 
 
+def test_arrival_at_terminus_is_not_a_departure(gtfs_zip: Path) -> None:
+    """Trams reaching the end of their trip do not depart from it."""
+    static = parse_static(gtfs_zip, {"D"})
+    assert ("D", "1", 0) not in static.scheduled
+    assert static.scheduled[("D", "1", 1)]
+    payload = build_trip_updates(
+        {
+            "trip_id": trip_id(1),
+            "stops": [("C", paris(8, 16), 0, False), ("D", paris(8, 19), 0, False)],
+        },
+        {
+            "trip_id": "U_7-1-T128-1-150301-7",
+            "stops": [("C", paris(8, 26), 0, False), ("D", paris(8, 29), 0, False)],
+        },
+    )
+    assert _departures(static, payload, paris(8, 15), ("D", "1", 0)) == []
+
+
 def test_duplicates_are_merged(static: StaticData) -> None:
     """Passages less than a minute apart are merged, real time first."""
     payload = build_trip_updates(

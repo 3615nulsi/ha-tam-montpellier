@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import timedelta
+import logging
 from unittest.mock import ANY, patch
 
 from aiohttp import ClientError
@@ -192,6 +193,25 @@ async def test_sensors(
     await entry.runtime_data.async_refresh()
     await hass.async_block_till_done()
     assert hass.states.get(NEXT_SENSOR).state == "2026-09-23T06:23:00+00:00"
+
+
+async def test_scheduled_departures_logged(
+    hass: HomeAssistant,
+    mock_feeds: AiohttpClientMocker,
+    freezer: FrozenDateTimeFactory,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """With debug logs, each followed stop tells what the archive offers."""
+    caplog.set_level(logging.DEBUG, logger="custom_components.tam_montpellier")
+    freezer.move_to(paris(8, 12))
+    entry = _entry()
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    assert (
+        "Bravo, line 1 towards Delta: 16 scheduled departures from platforms B,"
+        " next one 2026-09-23T08:13:00+02:00"
+    ) in caplog.text
 
 
 async def test_minutes_follow_the_clock(

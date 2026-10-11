@@ -44,7 +44,7 @@ from .const import (
     DOMAIN,
     SUBENTRY_TYPE_STOP,
 )
-from .coordinator import TamConfigEntry, async_fetch_feed
+from .coordinator import TamConfigEntry, async_fetch_feed, stop_key_from_data
 from .departures import parse_trip_updates
 from .gtfs_static import StaticData
 
@@ -313,13 +313,19 @@ class StopSubentryFlowHandler(ConfigSubentryFlow):
         static = self._static
         if user_input is not None and CONF_STOP_ID in user_input:
             stop_id = user_input[CONF_STOP_ID]
-            unique_id = f"{stop_id}_{self._route_id}_{self._direction_id}"
+            stop_name = static.stop_names.get(stop_id, stop_id)
+            # A stop is followed on all its platforms: another one of the
+            # same name is the same stop.
             if any(
-                subentry.unique_id == unique_id
+                stop_key_from_data(subentry.data)[1:]
+                == (self._route_id, self._direction_id)
+                and static.stop_names.get(
+                    subentry.data[CONF_STOP_ID], subentry.data[CONF_STOP_ID]
+                )
+                == stop_name
                 for subentry in self._get_entry().subentries.values()
             ):
                 return self.async_abort(reason="already_configured")
-            stop_name = static.stop_names.get(stop_id, stop_id)
             kind = static.line_kind(self._route_id)
             name = static.line_name(self._route_id, self._direction_id)
             line = f"{kind} {name}"
@@ -336,10 +342,16 @@ class StopSubentryFlowHandler(ConfigSubentryFlow):
                     CONF_DIRECTION_ID: self._direction_id,
                     CONF_STOP_ID: stop_id,
                 },
-                unique_id=unique_id,
+                unique_id=f"{stop_id}_{self._route_id}_{self._direction_id}",
             )
 
-        stops = static.line_stops.get((self._route_id, self._direction_id), [])
+        key = (self._route_id, self._direction_id)
+        # Each stop is offered once, whatever its platforms. The terminus is
+        # left out, as any stop where all trips end: no tram departs from it.
+        offered: dict[str, str] = {}
+        for stop_id in static.line_stops.get(key, []):
+            if stop_id not in static.arrivals.get(key, ()):
+                offered.setdefault(static.stop_names.get(stop_id, stop_id), stop_id)
         return self.async_show_form(
             step_id="stop",
             data_schema=vol.Schema(
@@ -347,13 +359,8 @@ class StopSubentryFlowHandler(ConfigSubentryFlow):
                     vol.Required(CONF_STOP_ID): SelectSelector(
                         SelectSelectorConfig(
                             options=[
-                                SelectOptionDict(
-                                    value=stop_id,
-                                    label=static.stop_names.get(stop_id, stop_id),
-                                )
-                                # The terminus is left out: trams do not depart
-                                # from it in this direction.
-                                for stop_id in stops[:-1]
+                                SelectOptionDict(value=stop_id, label=name)
+                                for name, stop_id in offered.items()
                             ],
                             mode=SelectSelectorMode.DROPDOWN,
                         )

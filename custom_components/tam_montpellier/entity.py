@@ -45,7 +45,12 @@ class TamStopEntity(CoordinatorEntity[TamCoordinator]):
 
     def _active_alerts(self) -> list[Alert]:
         """Return the alerts in effect for this stop, line and direction."""
-        return alerts_for(self.coordinator.alerts, self._stop_key, dt_util.utcnow())
+        return alerts_for(
+            self.coordinator.alerts,
+            self._stop_key,
+            dt_util.utcnow(),
+            self.coordinator.static.stop_platforms(self._stop_key[0]),
+        )
 
 
 class TamLineEntity(CoordinatorEntity[TamCoordinator]):
