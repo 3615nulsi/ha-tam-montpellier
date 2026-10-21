@@ -2,7 +2,7 @@
 
 <img src="custom_components/tam_montpellier/brand/icon@2x.png" alt="Icône" width="128" align="right">
 
-[![HACS](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://hacs.xyz/)
+[![HACS](https://img.shields.io/badge/HACS-Default-41BDF5.svg)](https://hacs.xyz/)
 [![Validate](https://github.com/3615nulsi/ha-tam-montpellier/actions/workflows/validate.yml/badge.svg)](https://github.com/3615nulsi/ha-tam-montpellier/actions/workflows/validate.yml)
 [![Tests](https://github.com/3615nulsi/ha-tam-montpellier/actions/workflows/tests.yml/badge.svg)](https://github.com/3615nulsi/ha-tam-montpellier/actions/workflows/tests.yml)
 
@@ -18,11 +18,13 @@ et fournit une carte qui reprend le style des afficheurs de quai.
 
 ## Installation
 
-Avec HACS, en un clic :
+L'intégration est dans le catalogue de HACS, sans dépôt personnalisé à
+ajouter. En un clic :
 
 [![Ouvrir dans HACS](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=3615nulsi&repository=ha-tam-montpellier&category=integration)
 
-Installez **TaM Montpellier**, puis redémarrez Home Assistant.
+Ou cherchez **TaM Montpellier** dans HACS. Téléchargez-la, puis redémarrez
+Home Assistant.
 
 Sans HACS, copiez le dossier `custom_components/tam_montpellier` dans le
 `custom_components` de votre configuration et redémarrez.
