@@ -160,6 +160,19 @@ def parse_gtfs_time(value: str) -> int:
     return int(hours) * 3600 + int(minutes) * 60 + int(seconds)
 
 
+_HEX_COLOR = re.compile(r"[0-9A-F]{6}")
+
+
+def _color(value: str | None, default: str) -> str:
+    """Return a GTFS line colour as six upper case hex digits.
+
+    The card writes it into style and SVG attributes: anything else in the
+    archive falls back to ``default``.
+    """
+    value = (value or "").strip().removeprefix("#").upper()
+    return value if _HEX_COLOR.fullmatch(value) else default
+
+
 def _read_csv(archive: zipfile.ZipFile, name: str) -> Iterator[dict[str, str]]:
     with archive.open(name) as raw:
         yield from csv.DictReader(io.TextIOWrapper(raw, encoding="utf-8-sig"))
@@ -307,8 +320,8 @@ def parse_static(
                 route_id=row["route_id"],
                 short_name=row.get("route_short_name") or row["route_id"],
                 long_name=row.get("route_long_name", ""),
-                color=(row.get("route_color") or "000000").upper(),
-                text_color=(row.get("route_text_color") or "FFFFFF").upper(),
+                color=_color(row.get("route_color"), "000000"),
+                text_color=_color(row.get("route_text_color"), "FFFFFF"),
                 route_type=route_type,
             )
             if route_type == TRAM_ROUTE_TYPE or route.route_id in extra:
@@ -542,7 +555,7 @@ def parse_static(
 
 
 # Bump when the parsing changes without changing the fields of StaticData.
-_CACHE_VERSION = 3
+_CACHE_VERSION = 4
 
 
 def load_static(
