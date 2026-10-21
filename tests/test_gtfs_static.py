@@ -237,3 +237,23 @@ def test_load_static_cache_depends_on_extra_routes(
         load_static(gtfs_zip, cache, set(), {"10"})
         load_static(gtfs_zip, cache, set(), {"10"})
     assert mock.call_count == 2
+
+
+def test_line_colors_are_checked(gtfs_zip: Path, tmp_path: Path) -> None:
+    """Only six hex digits are kept as line colours, the card writes them as is."""
+    path = tmp_path / "colors.zip"
+    with zipfile.ZipFile(gtfs_zip) as source, zipfile.ZipFile(path, "w") as archive:
+        for name in source.namelist():
+            if name != "routes.txt":
+                archive.writestr(name, source.read(name))
+        archive.writestr(
+            "routes.txt",
+            "route_id,route_short_name,route_long_name,route_type,route_color,"
+            "route_text_color\n"
+            '1,1,Alpha - Delta,0,"red;}</style><script>",#ff00aa\n'
+            "10,10,Bus line,3,005ca9 ,\n",
+        )
+    data = parse_static(path)
+    assert (data.routes["1"].color, data.routes["1"].text_color) == ("000000", "FF00AA")
+    bus = data.other_routes["10"]
+    assert (bus.color, bus.text_color) == ("005CA9", "FFFFFF")

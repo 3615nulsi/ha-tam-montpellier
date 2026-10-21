@@ -6,7 +6,7 @@
  * stop in the visual editor; the card finds that stop's sensors by itself.
  */
 
-const CARD_VERSION = "0.8.1";
+const CARD_VERSION = "0.8.2";
 const DOMAIN = "tam_montpellier";
 
 const STYLES = `
@@ -254,12 +254,15 @@ function loopIcon(clockwise, ink, bg) {
 
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
+// Line colours go into style and SVG attributes: only "#RRGGBB" is let through.
+const hexColor = (c, fallback) => (/^#[0-9a-f]{6}$/i.test(c) ? c : fallback);
+
 function render(entity, states, hass, variables, alertEntity, fleetEntity) {
   const e = entity;
   if (!e) return '<div class="tam empty">Capteur introuvable</div>';
   const a = e.attributes;
-  const color = a.line_color || '#005CA9';
-  const ink = a.line_text_color || '#FFFFFF';
+  const color = hexColor(a.line_color, '#005CA9');
+  const ink = hexColor(a.line_text_color, '#FFFFFF');
   const line = String(a.line || '?');
   // Line colors used as text are adjusted to stay readable on the card:
   // light ones (T3 lime) darkened on light themes, dark ones (T1 blue, T4
