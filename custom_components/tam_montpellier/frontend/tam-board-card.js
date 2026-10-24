@@ -6,7 +6,7 @@
  * stop in the visual editor; the card finds that stop's sensors by itself.
  */
 
-const CARD_VERSION = "0.8.2";
+const CARD_VERSION = "0.8.3";
 const DOMAIN = "tam_montpellier";
 
 const STYLES = `

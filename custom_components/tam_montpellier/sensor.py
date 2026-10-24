@@ -59,7 +59,9 @@ class TamSensorEntityDescription(SensorEntityDescription):
 
 def minutes_until(departure: Departure, now: datetime) -> int:
     """Return the whole minutes left before a departure, rounded down."""
-    seconds = (departure.time - now).total_seconds()
+    # In UTC: two datetimes of the same zone subtract by wall clock, off by an
+    # hour across a daylight saving change.
+    seconds = (dt_util.as_utc(departure.time) - dt_util.as_utc(now)).total_seconds()
     return max(0, math.floor(seconds / 60))
 
 
@@ -69,9 +71,18 @@ def next_minute_change(departure: Departure, now: datetime) -> datetime:
     With ``n`` whole minutes left, the count drops to ``n - 1`` once less
     than ``n`` minutes remain, i.e. at ``time - n minutes``. With less than
     a minute left, the next change is the departure itself.
+
+    The arithmetic is done in UTC: on an aware local datetime, subtracting a
+    timedelta moves the wall clock, which is off by an hour when a daylight
+    saving change lies between now and the departure. The result would then
+    be in the past, and the refresh would fire again at once, endlessly.
     """
-    minutes = math.floor((departure.time - now).total_seconds() / 60)
-    return departure.time - timedelta(minutes=max(minutes, 0)) + _BOUNDARY_EPSILON
+    departure_utc = dt_util.as_utc(departure.time)
+    now_utc = dt_util.as_utc(now)
+    minutes = math.floor((departure_utc - now_utc).total_seconds() / 60)
+    change = departure_utc - timedelta(minutes=max(minutes, 0)) + _BOUNDARY_EPSILON
+    # Never schedule a refresh in the past: that would loop on the event loop.
+    return max(change, now_utc + _BOUNDARY_EPSILON)
 
 
 SENSOR_DESCRIPTIONS: tuple[TamSensorEntityDescription, ...] = (

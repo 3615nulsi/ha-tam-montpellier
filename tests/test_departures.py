@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections import Counter
-from datetime import timedelta
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -26,7 +26,7 @@ from custom_components.tam_montpellier.sensor import (
     next_minute_change,
 )
 
-from .conftest import build_trip_updates, paris, trip_id
+from .conftest import PARIS, build_trip_updates, paris, trip_id
 
 KEY_B = ("B", "1", 0)
 
@@ -270,3 +270,39 @@ def test_minutes_rounded_down(now, minutes: int, change) -> None:
     assert minutes_until(departure, now) == minutes
     assert next_minute_change(departure, now) - change < timedelta(seconds=1)
     assert next_minute_change(departure, now) > now
+
+
+@pytest.mark.parametrize(
+    ("departure_time", "now"),
+    [
+        # Autumn: the first tram of the next morning is in winter time.
+        (
+            datetime(2026, 10, 25, 7, 5, tzinfo=PARIS),
+            datetime(2026, 10, 24, 23, 38, tzinfo=PARIS),
+        ),
+        # Spring: the first tram of the next morning is in summer time.
+        (
+            datetime(2027, 3, 28, 5, 5, tzinfo=PARIS),
+            datetime(2027, 3, 27, 23, 38, tzinfo=PARIS),
+        ),
+    ],
+)
+def test_next_minute_change_across_dst(departure_time, now) -> None:
+    """A daylight saving change before the departure keeps the refresh ahead.
+
+    Subtracting minutes from the local wall clock was an hour off, scheduling
+    the refresh in the past: it fired again at once, pegging the event loop.
+    """
+    departure = Departure(
+        time=departure_time,
+        route_id="1",
+        headsign="Delta",
+        source=DepartureSource.SCHEDULED,
+        delay=None,
+        trip_id="t",
+    )
+    change = next_minute_change(departure, now)
+    assert change > now
+    assert change - now <= timedelta(minutes=1, seconds=1)
+    # At the change, the displayed count has just dropped by one.
+    assert minutes_until(departure, change) == minutes_until(departure, now) - 1
