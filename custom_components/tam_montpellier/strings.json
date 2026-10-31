@@ -244,10 +244,11 @@
   "options": {
     "step": {
       "init": {
-        "title": "Bus lines",
-        "description": "Extra lines to offer next to the tram lines. Pick the bus lines you want to follow, then use \"Add stop\" to choose the stops.\n\nA line with a followed stop cannot be removed.",
+        "title": "Bus lines and added runs",
+        "description": "Extra lines to offer next to the tram lines. Pick the bus lines you want to follow, then use \"Add stop\" to choose the stops.\n\nA line with a followed stop cannot be removed.\n\nDuring disruptions, TaM publishes replacement runs next to the regular trips. Like the official M'Ticket app, they are hidden unless you show them here.",
         "data": {
-          "extra_routes": "Bus lines"
+          "extra_routes": "Bus lines",
+          "include_added_trips": "Show the runs added by TaM (replacement services)"
         }
       }
     },

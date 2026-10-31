@@ -22,6 +22,7 @@ from custom_components.tam_montpellier.const import (
     CONF_DIRECTION_ID,
     CONF_EXTRA_ROUTES,
     CONF_GTFS_URL,
+    CONF_INCLUDE_ADDED_TRIPS,
     CONF_ROUTE_ID,
     CONF_STOP_ID,
     CONF_TRIP_UPDATES_URL,
@@ -366,6 +367,11 @@ async def test_bus_lines_option(
         result["flow_id"], {CONF_EXTRA_ROUTES: ["10"]}
     )
     assert result["type"] is FlowResultType.CREATE_ENTRY
+    # Runs added by the operator stay hidden unless asked for.
+    assert entry.options == {
+        CONF_EXTRA_ROUTES: ["10"],
+        CONF_INCLUDE_ADDED_TRIPS: False,
+    }
     await hass.async_block_till_done()
 
     # The entry is reloaded: the bus line is offered after the tram lines.

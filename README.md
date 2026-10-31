@@ -93,6 +93,13 @@ indisponibles.
 arrivent avec les données publiées chaque nuit par la TaM. Si les trams partent
 d'un autre quai du même arrêt, vous les voyez quand même.
 
+**Mêmes horaires que M'Ticket, même un jour de perturbation.** Quand le
+réseau est perturbé (manifestation, coupure de ligne), la TaM publie parfois
+des courses de remplacement en plus des trams habituels. L'application
+officielle M'Ticket ne les affiche pas, et l'intégration non plus par défaut.
+Pour les voir quand même, cochez *Afficher les courses ajoutées par TaM* dans
+*Configurer*, sur la page de l'intégration.
+
 **Le bus aussi, si vous voulez.** Seul le tram est proposé au départ. Dans
 *Configurer* sur la page de l'intégration, cochez les lignes de bus qui vous
 intéressent (la 22, par exemple), puis ajoutez leurs arrêts comme pour le tram.
