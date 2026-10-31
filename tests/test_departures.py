@@ -192,6 +192,37 @@ def test_unknown_trip_uses_last_stop_as_destination(static: StaticData) -> None:
     assert extra.time == paris(8, 18)
 
 
+def test_added_runs_are_hidden_by_default(static: StaticData) -> None:
+    """Runs flagged ADDED are left out, as in the official app, unless asked for.
+
+    During the disruption of 31 October 2026, TaM kept announcing the regular
+    trips and added replacement runs next to them, which M'Ticket ignored.
+    """
+    payload = build_trip_updates(
+        {
+            "trip_id": "U_10-2-T216-0-160640",
+            "added": True,
+            "stops": [
+                ("B", paris(8, 18), 0, False),
+                ("C", paris(8, 21), 0, False),
+            ],
+        }
+    )
+    snapshot = parse_trip_updates(payload, set(static.routes))
+    assert snapshot.trips[0].added
+
+    hidden = compute_departures(static, snapshot, KEY_B, paris(8, 15))
+    assert all(dep.trip_id != "U_10-2-T216-0-160640" for dep in hidden)
+    assert hidden == _departures(static, None, paris(8, 15))
+
+    shown = compute_departures(
+        static, snapshot, KEY_B, paris(8, 15), include_added=True
+    )
+    added = next(dep for dep in shown if dep.trip_id == "U_10-2-T216-0-160640")
+    assert added.time == paris(8, 18)
+    assert added.headsign == "Charlie"
+
+
 def test_arrival_at_terminus_is_not_a_departure(gtfs_zip: Path) -> None:
     """Trams reaching the end of their trip do not depart from it."""
     static = parse_static(gtfs_zip, {"D"})

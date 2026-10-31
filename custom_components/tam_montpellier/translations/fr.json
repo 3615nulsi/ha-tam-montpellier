@@ -244,10 +244,11 @@
   "options": {
     "step": {
       "init": {
-        "title": "Lignes de bus",
-        "description": "Lignes supplémentaires proposées avec les lignes de tram. Choisissez les lignes de bus à suivre, puis utilisez « Ajouter un arrêt » pour choisir les arrêts.\n\nUne ligne dont un arrêt est suivi ne peut pas être retirée.",
+        "title": "Lignes de bus et courses ajoutées",
+        "description": "Lignes supplémentaires proposées avec les lignes de tram. Choisissez les lignes de bus à suivre, puis utilisez « Ajouter un arrêt » pour choisir les arrêts.\n\nUne ligne dont un arrêt est suivi ne peut pas être retirée.\n\nLors des perturbations, TaM publie des courses de remplacement en plus des trams habituels. Comme dans l'application officielle M'Ticket, elles sont masquées, sauf si vous les affichez ici.",
         "data": {
-          "extra_routes": "Lignes de bus"
+          "extra_routes": "Lignes de bus",
+          "include_added_trips": "Afficher les courses ajoutées par TaM (services de remplacement)"
         }
       }
     },

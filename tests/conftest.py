@@ -105,7 +105,8 @@ def build_trip_updates(*trips: dict) -> bytes:
 
     Each trip is a dict with ``trip_id``, ``route_id``, ``direction_id`` and
     ``stops``: a list of ``(stop_id, datetime | None, delay | None, skipped)``.
-    ``canceled=True`` marks a canceled trip, ``vehicle_id`` names its tram.
+    ``canceled=True`` marks a canceled trip, ``added=True`` a run added by the
+    operator, ``vehicle_id`` names its tram.
     """
     feed = gtfs_realtime_pb2.FeedMessage()
     feed.header.gtfs_realtime_version = "2.0"
@@ -123,6 +124,8 @@ def build_trip_updates(*trips: dict) -> bytes:
             update.trip.schedule_relationship = (
                 gtfs_realtime_pb2.TripDescriptor.CANCELED
             )
+        if trip.get("added"):
+            update.trip.schedule_relationship = gtfs_realtime_pb2.TripDescriptor.ADDED
         for stop_id, when, delay, skipped in trip.get("stops", ()):
             stu = update.stop_time_update.add()
             stu.stop_id = stop_id

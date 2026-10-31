@@ -10,7 +10,10 @@ The TaM GTFS-RT feed has a few quirks this module deals with:
   delay announced at the terminus;
 * stops are sometimes listed twice, once with times and once as ``SKIPPED``
   without times;
-* a few extra runs are unknown to the static GTFS (``U_7-1-T128-1-150301-7``).
+* a few extra runs are unknown to the static GTFS (``U_7-1-T128-1-150301-7``);
+* during disruptions the operator publishes replacement runs flagged
+  ``ADDED`` next to the regular trips, which it does not cancel. The official
+  M'Ticket app ignores them, so they are left out unless asked for.
 
 This module has no Home Assistant dependency.
 """
@@ -81,6 +84,8 @@ class RealtimeTrip:
     last_stop_id: str | None = None
     vehicle_id: str | None = None
     """Fleet number of the tram running the trip, when assigned."""
+    added: bool = False
+    """Run flagged ADDED by the operator, outside the published timetable."""
 
 
 @dataclass(slots=True)
@@ -117,6 +122,7 @@ def parse_trip_updates(
                 descriptor.direction_id if descriptor.HasField("direction_id") else None
             ),
             vehicle_id=update.vehicle.id or None,
+            added=descriptor.schedule_relationship == _TripDescriptor.ADDED,
         )
         last_time = 0
         for stu in update.stop_time_update:
@@ -146,11 +152,16 @@ def compute_departures(
     key: StopKey,
     now: datetime,
     limit: int = 10,
+    include_added: bool = False,
 ) -> list[Departure]:
     """Merge real-time and scheduled data into upcoming departures at a stop.
 
     All the platforms of the stop are considered, the trams of the line
     direction departing from any of them: works may move them to another one.
+
+    Runs flagged ADDED are skipped unless ``include_added`` is set: during
+    disruptions the operator publishes replacement runs that the official
+    app does not show, next to the regular trips it keeps announcing.
     """
     stop_id, route_id, direction_id = key
     platforms = static.stop_platforms(stop_id)
@@ -163,6 +174,8 @@ def compute_departures(
     realtime_trips: dict[str, tuple[str, int, int | None] | None] = {}
 
     for trip in realtime.trips:
+        if trip.added and not include_added:
+            continue
         static_trip = static.trips.get(trip.trip_id)
         trip_direction = trip.direction_id
         if trip_direction is None and static_trip is not None:

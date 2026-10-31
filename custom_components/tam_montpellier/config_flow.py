@@ -19,6 +19,7 @@ from homeassistant.config_entries import (
 )
 from homeassistant.core import callback
 from homeassistant.helpers.selector import (
+    BooleanSelector,
     SelectOptionDict,
     SelectSelector,
     SelectSelectorConfig,
@@ -33,6 +34,7 @@ from .const import (
     CONF_DIRECTION_ID,
     CONF_EXTRA_ROUTES,
     CONF_GTFS_URL,
+    CONF_INCLUDE_ADDED_TRIPS,
     CONF_ROUTE_ID,
     CONF_STOP_ID,
     CONF_TRIP_UPDATES_URL,
@@ -142,7 +144,7 @@ class TamConfigFlow(ConfigFlow, domain=DOMAIN):
 
 
 class TamOptionsFlow(OptionsFlow):
-    """Choose the bus lines offered next to the tram lines."""
+    """Choose the bus lines offered next to the tram lines, and the added runs."""
 
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
@@ -153,6 +155,7 @@ class TamOptionsFlow(OptionsFlow):
             return self.async_abort(reason="entry_not_loaded")
         static = entry.runtime_data.static
         chosen = set(entry.options.get(CONF_EXTRA_ROUTES, []))
+        include_added = entry.options.get(CONF_INCLUDE_ADDED_TRIPS, False)
         # A line with a followed stop cannot be removed.
         in_use = {
             subentry.data[CONF_ROUTE_ID] for subentry in entry.subentries.values()
@@ -174,7 +177,12 @@ class TamOptionsFlow(OptionsFlow):
                 placeholders = {"lines": names}
             else:
                 return self.async_create_entry(
-                    data={CONF_EXTRA_ROUTES: sorted(selected)}
+                    data={
+                        CONF_EXTRA_ROUTES: sorted(selected),
+                        CONF_INCLUDE_ADDED_TRIPS: user_input.get(
+                            CONF_INCLUDE_ADDED_TRIPS, False
+                        ),
+                    }
                 )
         else:
             placeholders = {"lines": ""}
@@ -208,12 +216,23 @@ class TamOptionsFlow(OptionsFlow):
                                 multiple=True,
                                 mode=SelectSelectorMode.DROPDOWN,
                             )
-                        )
+                        ),
+                        vol.Optional(
+                            CONF_INCLUDE_ADDED_TRIPS, default=False
+                        ): BooleanSelector(),
                     }
                 ),
-                {CONF_EXTRA_ROUTES: sorted(user_input[CONF_EXTRA_ROUTES])}
+                {
+                    CONF_EXTRA_ROUTES: sorted(user_input[CONF_EXTRA_ROUTES]),
+                    CONF_INCLUDE_ADDED_TRIPS: user_input.get(
+                        CONF_INCLUDE_ADDED_TRIPS, False
+                    ),
+                }
                 if user_input
-                else {CONF_EXTRA_ROUTES: sorted(chosen)},
+                else {
+                    CONF_EXTRA_ROUTES: sorted(chosen),
+                    CONF_INCLUDE_ADDED_TRIPS: include_added,
+                },
             ),
             errors=errors,
             description_placeholders=placeholders,

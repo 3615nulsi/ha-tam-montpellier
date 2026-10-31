@@ -17,6 +17,9 @@ CONF_DIRECTION_ID: Final = "direction_id"
 CONF_STOP_ID: Final = "stop_id"
 # Option: ids of the bus lines to offer next to the tram lines.
 CONF_EXTRA_ROUTES: Final = "extra_routes"
+# Option: show the runs the operator flags ADDED (replacement services during
+# disruptions), which the official app leaves out.
+CONF_INCLUDE_ADDED_TRIPS: Final = "include_added_trips"
 
 SUBENTRY_TYPE_STOP: Final = "stop"
 

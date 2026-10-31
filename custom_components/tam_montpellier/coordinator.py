@@ -22,6 +22,7 @@ from .const import (
     CONF_DIRECTION_ID,
     CONF_EXTRA_ROUTES,
     CONF_GTFS_URL,
+    CONF_INCLUDE_ADDED_TRIPS,
     CONF_ROUTE_ID,
     CONF_STOP_ID,
     CONF_TRIP_UPDATES_URL,
@@ -246,8 +247,11 @@ class TamCoordinator(DataUpdateCoordinator[dict[StopKey, list[Departure]]]):
     def _compute_departures(
         self, snapshot: RealtimeSnapshot, now: datetime
     ) -> dict[StopKey, list[Departure]]:
+        include_added = self.config_entry.options.get(CONF_INCLUDE_ADDED_TRIPS, False)
         return {
-            key: compute_departures(self.static, snapshot, key, now, MAX_DEPARTURES)
+            key: compute_departures(
+                self.static, snapshot, key, now, MAX_DEPARTURES, include_added
+            )
             for key in self.stop_keys
         }
 
