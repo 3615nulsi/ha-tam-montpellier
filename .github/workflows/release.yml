@@ -1,0 +1,35 @@
+name: Release
+
+# Attach the integration as a zip to each release. HACS installs this zip
+# (zip_release in hacs.json), so GitHub counts the downloads of each version.
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing release tag to attach the zip to"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  zip:
+    runs-on: ubuntu-latest
+    env:
+      TAG: ${{ github.event.release.tag_name || inputs.tag }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ env.TAG }}
+      - name: Build tam_montpellier.zip
+        run: |
+          cd custom_components/tam_montpellier
+          zip -r -X "$GITHUB_WORKSPACE/tam_montpellier.zip" . -x '*__pycache__*' '*.pyc'
+          unzip -l "$GITHUB_WORKSPACE/tam_montpellier.zip"
+      - name: Upload to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$TAG" tam_montpellier.zip --clobber
