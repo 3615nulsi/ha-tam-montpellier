@@ -22,7 +22,7 @@ from custom_components.tam_montpellier.gtfs_static import (
     parse_static,
 )
 
-from .conftest import build_trip_updates, paris
+from .conftest import build_trip_updates, paris, trip_id
 
 
 def test_read_columns_missing_column(tmp_path: Path) -> None:
@@ -257,3 +257,18 @@ def test_line_colors_are_checked(gtfs_zip: Path, tmp_path: Path) -> None:
     assert (data.routes["1"].color, data.routes["1"].text_color) == ("000000", "FF00AA")
     bus = data.other_routes["10"]
     assert (bus.color, bus.text_color) == ("005CA9", "FFFFFF")
+
+
+def test_previous_trips(gtfs_zip: Path) -> None:
+    """Trips are chained by block, the active copies through the inactive ones."""
+    static = parse_static(gtfs_zip)
+    # D -> A at 08:10 (direction 1, index 1), then A -> D at 08:20 (index 2).
+    assert static.previous_trips[trip_id(2)] == trip_id(1, direction=1)
+    assert static.previous_trips["102"] == "201"
+    # Chains stay within a service: active and inactive copies never mix.
+    assert all(
+        later.startswith("U_") == earlier.startswith("U_")
+        for later, earlier in static.previous_trips.items()
+    )
+    # The first trip of a block has no predecessor.
+    assert trip_id(1, direction=1) not in static.previous_trips

@@ -21,7 +21,7 @@ This module has no Home Assistant dependency.
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import timedelta
 
 from google.transit import gtfs_realtime_pb2
@@ -39,6 +39,8 @@ class Sighting:
 
     route_id: str
     direction_id: int | None
+    trip_id: str | None = field(default=None, compare=False)
+    """Trip the tram runs, when the feed tells."""
 
 
 def parse_vehicle_positions(
@@ -59,7 +61,9 @@ def parse_vehicle_positions(
         if route_ids is not None and trip.route_id not in route_ids:
             continue
         vehicles[vehicle_id] = Sighting(
-            trip.route_id, trip.direction_id if trip.HasField("direction_id") else None
+            trip.route_id,
+            trip.direction_id if trip.HasField("direction_id") else None,
+            trip.trip_id or None,
         )
     return vehicles
 
@@ -75,8 +79,17 @@ def trip_update_vehicles(
         direction_id = trip.direction_id
         if direction_id is None and (info := static.trips.get(trip.trip_id)):
             direction_id = info.direction_id
-        vehicles[trip.vehicle_id] = Sighting(trip.route_id, direction_id)
+        vehicles[trip.vehicle_id] = Sighting(trip.route_id, direction_id, trip.trip_id)
     return vehicles
+
+
+def trip_vehicles(sightings: Mapping[str, Sighting]) -> dict[str, str]:
+    """Return the fleet number of the tram running each trip, by trip id."""
+    return {
+        sighting.trip_id: vehicle_id
+        for vehicle_id, sighting in sightings.items()
+        if sighting.trip_id
+    }
 
 
 def fleet_lines(static: StaticData) -> list[FleetLine]:

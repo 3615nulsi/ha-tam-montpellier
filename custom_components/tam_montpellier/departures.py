@@ -20,7 +20,8 @@ This module has no Home Assistant dependency.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from collections.abc import Mapping
+from dataclasses import dataclass, field, replace
 from datetime import date, datetime, timedelta
 from enum import StrEnum
 
@@ -35,6 +36,8 @@ DUPLICATE_WINDOW = timedelta(seconds=60)
 REALTIME_MATCH_WINDOW = timedelta(hours=3)
 # Larger terminus delays are considered inconsistent and ignored.
 MAX_TERMINUS_DELAY = timedelta(hours=1)
+# How many trips back the tram of a trip is looked for along its block.
+MAX_BLOCK_LOOKBACK = 2
 
 _StopTimeUpdate = gtfs_realtime_pb2.TripUpdate.StopTimeUpdate
 _TripDescriptor = gtfs_realtime_pb2.TripDescriptor
@@ -69,6 +72,11 @@ class Departure:
     delay: int | None
     """Delay in seconds, when known."""
     trip_id: str
+    vehicle_id: str | None = None
+    """Fleet number of the tram, when known."""
+    vehicle_confirmed: bool = False
+    """True when the feeds name the tram of this trip, False when it is the
+    tram of an earlier trip of the same block, expected to run this one."""
 
 
 @dataclass(slots=True)
@@ -153,6 +161,7 @@ def compute_departures(
     now: datetime,
     limit: int = 10,
     include_added: bool = False,
+    vehicles: Mapping[str, str] | None = None,
 ) -> list[Departure]:
     """Merge real-time and scheduled data into upcoming departures at a stop.
 
@@ -162,6 +171,10 @@ def compute_departures(
     Runs flagged ADDED are skipped unless ``include_added`` is set: during
     disruptions the operator publishes replacement runs that the official
     app does not show, next to the regular trips it keeps announcing.
+
+    ``vehicles`` maps trip ids to the fleet number of the tram running them.
+    A trip without one is given the tram of the trip run before it in its
+    block, as expected rather than confirmed.
     """
     stop_id, route_id, direction_id = key
     platforms = static.stop_platforms(stop_id)
@@ -255,6 +268,8 @@ def compute_departures(
 
     candidates.sort(key=lambda dep: (dep.time, _SOURCE_RANK[dep.source]))
     departures: list[Departure] = []
+    if vehicles:
+        candidates = [_with_vehicle(static, dep, vehicles) for dep in candidates]
     for candidate in candidates:
         if departures and candidate.time - departures[-1].time < DUPLICATE_WINDOW:
             if _SOURCE_RANK[candidate.source] < _SOURCE_RANK[departures[-1].source]:
@@ -262,6 +277,21 @@ def compute_departures(
             continue
         departures.append(candidate)
     return departures[:limit]
+
+
+def _with_vehicle(
+    static: StaticData, departure: Departure, vehicles: Mapping[str, str]
+) -> Departure:
+    """Name the tram of a departure, confirmed or expected from its block."""
+    if (vehicle_id := vehicles.get(departure.trip_id)) is not None:
+        return replace(departure, vehicle_id=vehicle_id, vehicle_confirmed=True)
+    trip_id = departure.trip_id
+    for _ in range(MAX_BLOCK_LOOKBACK):
+        if (trip_id := static.previous_trips.get(trip_id)) is None:
+            break
+        if (vehicle_id := vehicles.get(trip_id)) is not None:
+            return replace(departure, vehicle_id=vehicle_id)
+    return departure
 
 
 def _terminus_update(

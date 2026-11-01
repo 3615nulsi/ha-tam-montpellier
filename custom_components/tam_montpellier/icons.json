@@ -26,6 +26,9 @@
       },
       "vehicles_in_service": {
         "default": "mdi:tram"
+      },
+      "next_vehicle": {
+        "default": "mdi:tram"
       }
     }
   }

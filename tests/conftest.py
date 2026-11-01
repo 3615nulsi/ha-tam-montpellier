@@ -67,8 +67,8 @@ def build_gtfs() -> bytes:
             f"BUS,{SERVICE_DAY},1",
         ],
         "trips.txt": [
-            "route_id,service_id,trip_id,trip_headsign,direction_id",
-            "10,BUS,bus-1,Bus terminus,0",
+            "route_id,service_id,trip_id,trip_headsign,direction_id,block_id",
+            "10,BUS,bus-1,Bus terminus,0,",
         ],
         "stop_times.txt": [
             "trip_id,arrival_time,departure_time,stop_id,stop_sequence",
@@ -81,8 +81,17 @@ def build_gtfs() -> bytes:
         for index, start in enumerate(DEPARTURE_MINUTES):
             active = trip_id(index, direction)
             inactive = active.removeprefix("U_").removesuffix("-7")
+            # A tram runs D -> A (direction 1, index i), then A -> D
+            # (direction 0, index i + 1): block "Bi". As in the TaM archive,
+            # only the inactive copy of a trip carries its block.
+            block = f"B{index if direction else index - 1}"
+            if index == 0 and direction == 0:
+                block = ""
             for tid, service in ((active, "U_07_1"), (inactive, "BASE")):
-                files["trips.txt"].append(f"1,{service},{tid},{headsign},{direction}")
+                block_id = block if service == "BASE" else ""
+                files["trips.txt"].append(
+                    f"1,{service},{tid},{headsign},{direction},{block_id}"
+                )
                 for seq, stop_id in enumerate(stops):
                     time = _fmt(start + 3 * seq)
                     files["stop_times.txt"].append(
@@ -143,20 +152,23 @@ def build_trip_updates(*trips: dict) -> bytes:
     return feed.SerializeToString()
 
 
-def build_vehicle_positions(*vehicles: tuple[str, str, int | None]) -> bytes:
+def build_vehicle_positions(*vehicles: tuple) -> bytes:
     """Build a GTFS-RT VehiclePosition feed.
 
-    Each vehicle is a ``(vehicle_id, route_id, direction_id)`` tuple.
+    Each vehicle is a ``(vehicle_id, route_id, direction_id)`` tuple, with
+    the id of the trip it runs as an optional fourth item.
     """
     feed = gtfs_realtime_pb2.FeedMessage()
     feed.header.gtfs_realtime_version = "2.0"
     feed.header.timestamp = int(paris(8, 0).timestamp())
-    for vehicle_id, route_id, direction_id in vehicles:
+    for vehicle_id, route_id, direction_id, *trip in vehicles:
         entity = feed.entity.add()
         entity.id = vehicle_id
         entity.vehicle.vehicle.id = vehicle_id
         entity.vehicle.vehicle.label = vehicle_id
         entity.vehicle.trip.route_id = route_id
+        if trip:
+            entity.vehicle.trip.trip_id = trip[0]
         if direction_id is not None:
             entity.vehicle.trip.direction_id = direction_id
         entity.vehicle.position.latitude = 43.6

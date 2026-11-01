@@ -107,6 +107,15 @@ Ne cochez que celles dont vous avez besoin : chaque ligne prend de la mémoire
 (environ 34 Mo pour le tram seul, 79 Mo avec tous les bus), ce qui compte sur
 un Raspberry Pi.
 
+**Rame courte ou rame longue.** Le capteur *Rame du prochain passage* donne
+le modèle du tram attendu (Citadis 302, 401, 402 ou CAF Urbos), d'après son
+numéro de parc. Les Citadis 302 font 32,5 m, les autres plus de 40 m. Quand la
+TaM n'a pas encore attribué de rame à un passage, l'intégration reprend celle
+de la course précédente du même service : elle est alors indiquée comme
+*prévue*. Sur la carte, la mention « Rame courte » / « Rame longue » ne
+s'affiche que sur les lignes où circulent des rames courtes (option
+*Longueur de rame* de la carte).
+
 **Les rames en service.** Chaque ligne de tram a aussi son appareil
 (« Tram 1 », …) avec le nombre de rames qui circulent. Une rame qui patiente au
 terminus peut disparaître un moment des données : elle reste comptée 20 minutes.

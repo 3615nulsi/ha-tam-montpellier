@@ -638,6 +638,53 @@ async def test_vehicles_sensor(
     assert hass.states.get(VEHICLES_SENSOR).state == "1"
 
 
+async def test_next_vehicle_sensor(
+    hass: HomeAssistant,
+    aioclient_mock: AiohttpClientMocker,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """The model and length of the trams of the next departures are given."""
+    freezer.move_to(paris(8, 12))
+    aioclient_mock.get(DEFAULT_GTFS_URL, content=build_gtfs())
+    aioclient_mock.get(DEFAULT_ALERTS_URL, content=build_alerts())
+    aioclient_mock.get(
+        DEFAULT_TRIP_UPDATES_URL,
+        content=build_trip_updates(
+            {
+                "trip_id": trip_id(1),
+                "vehicle_id": "2045",
+                "stops": [("B", paris(8, 14), 0, False)],
+            }
+        ),
+    )
+    aioclient_mock.get(
+        DEFAULT_VEHICLE_POSITIONS_URL,
+        content=build_vehicle_positions(("2011", "1", 1, trip_id(1, direction=1))),
+    )
+    entry = _entry()
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    state = hass.states.get("sensor.bravo_delta_tram_1_next_tram")
+    assert state.state == "citadis_302"
+    assert state.attributes["vehicle"] == "2045"
+    assert state.attributes["vehicle_model"] == "Citadis 302"
+    assert state.attributes["vehicle_size"] == "short"
+    assert state.attributes["vehicle_length"] == 32.5
+    assert state.attributes["vehicle_confirmed"] is True
+
+    departures = hass.states.get(MINUTES_SENSOR).attributes["departures"]
+    assert departures[1]["vehicle"] == "2011"
+    assert departures[1]["vehicle_size"] == "long"
+    assert departures[1]["vehicle_confirmed"] is False
+    assert departures[2]["vehicle"] is None
+    assert departures[2]["vehicle_confirmed"] is None
+
+    fleet = hass.states.get(VEHICLES_SENSOR)
+    assert fleet.attributes["short_vehicles"] == 1
+
+
 async def test_card_is_served(
     hass: HomeAssistant,
     mock_feeds: AiohttpClientMocker,

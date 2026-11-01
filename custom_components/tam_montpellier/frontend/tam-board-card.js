@@ -6,7 +6,7 @@
  * stop in the visual editor; the card finds that stop's sensors by itself.
  */
 
-const CARD_VERSION = "0.8.3";
+const CARD_VERSION = "0.9.0";
 const DOMAIN = "tam_montpellier";
 
 const STYLES = `
@@ -43,6 +43,11 @@ ha-card { overflow: hidden; }
 .chip b small { font-size: 11px; font-weight: 700; margin-left: 2px; }
 .chip span { display: block; font-size: 11.5px; color: var(--secondary-text-color); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .chip.sched { border-left-style: dashed; }
+/* Tram length: grey, in italics when expected rather than confirmed. */
+.size { color: var(--secondary-text-color); }
+.size.planned { font-style: italic; }
+.meta .size::before { content: "·"; margin-right: 8px; }
+.chip span.size { font-size: 11px; letter-spacing: -.1px; text-overflow: clip; }
 .alert { display: flex; gap: 10px; align-items: flex-start; margin: 0 12px 12px; padding: 10px 12px; border-radius: 10px; background: color-mix(in srgb, #E8590C 13%, var(--card-background-color, #fff)); color: var(--primary-text-color); font-size: 13px; line-height: 1.35; }
 .alert ha-icon { --mdc-icon-size: 20px; color: #E8590C; flex: none; }
 @keyframes tam-pulse { 0% { box-shadow: 0 0 0 0 rgba(46,173,75,.55); } 70% { box-shadow: 0 0 0 7px rgba(46,173,75,0); } 100% { box-shadow: 0 0 0 0 rgba(46,173,75,0); } }
@@ -297,6 +302,21 @@ function render(entity, states, hass, variables, alertEntity, fleetEntity) {
     ? `<span class="fleet">${trams} rame${trams > 1 ? 's' : ''} en service</span>`
     : '';
 
+  // Tram lengths are shown where short and long trams run ("auto"): on the
+  // other lines all trams are long, saying so would only add noise.
+  const sizeMode = variables.vehicle_size || 'auto';
+  const shortOnLine = fleetEntity ? Number(states[fleetEntity]?.attributes?.short_vehicles) > 0 : false;
+  const showSize = sizeMode === 'always'
+    || (sizeMode === 'auto' && (shortOnLine || deps.some((d) => d.vehicle_size === 'short')));
+  const size = (d, chip) => {
+    if (!showSize || !['short', 'long'].includes(d.vehicle_size)) return '';
+    const label = d.vehicle_size === 'short' ? 'Rame courte' : 'Rame longue';
+    const planned = !d.vehicle_confirmed;
+    const title = d.vehicle_model ? ` title="${esc(d.vehicle_model)} n° ${esc(d.vehicle)}"` : '';
+    // No room for "prévue" in a chip: the italics tell it.
+    return `<span class="size${planned ? ' planned' : ''}"${title}>${label}${planned && !chip ? ' prévue' : ''}</span>`;
+  };
+
   let next;
   const first = deps[0];
   if (!first || e.state === 'unknown' || e.state === 'unavailable') {
@@ -308,13 +328,13 @@ function render(entity, states, hass, variables, alertEntity, fleetEntity) {
       : `<div class="count"><b>${minutes}</b><span>min</span></div>`;
     next = `<div class="next">${count}<div class="info">
         <div class="dest">${esc(first.destination)}</div>
-        <div class="meta">${sources[first.source] || ''}${delay(first)}${fleet}</div>
+        <div class="meta">${sources[first.source] || ''}${delay(first)}${size(first, false)}${fleet}</div>
       </div></div>`;
   }
 
   const chips = deps.slice(1, 5).map((d) => `<div class="chip${d.source === 'scheduled' ? ' sched' : ''}">
       <b>${d.minutes < 1 ? 'Proche' : d.minutes + '<small>min</small>'}</b>
-      <span>${esc(d.destination)}</span></div>`).join('');
+      <span>${esc(d.destination)}</span>${size(d, true)}</div>`).join('');
 
   const alertState = alertEntity ? states[alertEntity] : undefined;
   const alertCount = alertState ? Number(alertState.attributes.alert_count || 0) : 0;
@@ -387,7 +407,7 @@ class TamBoardCard extends HTMLElement {
   }
 
   _render(entity, alert, fleet) {
-    const variables = { stop_name: this._config.name, direction: this._config.direction };
+    const variables = { stop_name: this._config.name, direction: this._config.direction, vehicle_size: this._config.vehicle_size };
     this._card().innerHTML = render(entity, this._hass.states, this._hass, variables, alert, fleet);
   }
 
@@ -422,10 +442,12 @@ class TamBoardCardEditor extends HTMLElement {
         device: "Arrêt",
         name: "Nom affiché (facultatif)",
         direction: "Direction affichée (facultatif)",
+        vehicle_size: "Longueur de rame",
       })[schema.name];
       this._form.addEventListener("value-changed", (ev) => {
         const config = { ...this._config, ...ev.detail.value };
         for (const key of ["name", "direction"]) if (!config[key]) delete config[key];
+        if (config.vehicle_size === "auto") delete config.vehicle_size;
         this.dispatchEvent(new CustomEvent("config-changed", {
           bubbles: true, composed: true, detail: { config },
         }));
@@ -433,12 +455,17 @@ class TamBoardCardEditor extends HTMLElement {
       this.appendChild(this._form);
     }
     this._form.hass = this._hass;
-    this._form.data = this._config;
+    this._form.data = { vehicle_size: "auto", ...this._config };
     this._form.schema = [
       // Stops have a disruption binary sensor, lines do not.
       { name: "device", required: true, selector: { device: { integration: DOMAIN, entity: { domain: "binary_sensor" } } } },
       { name: "name", selector: { text: {} } },
       { name: "direction", selector: { text: {} } },
+      { name: "vehicle_size", selector: { select: { mode: "dropdown", options: [
+        { value: "auto", label: "Automatique (lignes avec des rames courtes)" },
+        { value: "always", label: "Toujours" },
+        { value: "never", label: "Jamais" },
+      ] } } },
     ];
   }
 }
