@@ -223,6 +223,35 @@ def test_added_runs_are_hidden_by_default(static: StaticData) -> None:
     assert added.headsign == "Charlie"
 
 
+def test_vehicles(static: StaticData) -> None:
+    """The tram of a trip is named by the feeds, else expected from its block."""
+    payload = build_trip_updates(
+        {
+            "trip_id": trip_id(1),
+            "stops": [("B", paris(8, 14), 0, False), ("C", paris(8, 17), 0, False)],
+        }
+    )
+    snapshot = parse_trip_updates(payload, set(static.routes))
+    vehicles = {trip_id(1): "2045", trip_id(1, direction=1): "2011"}
+    departures = compute_departures(
+        static, snapshot, KEY_B, paris(8, 12), vehicles=vehicles
+    )
+    by_trip = {dep.trip_id: dep for dep in departures}
+    # Running trip named by the feeds.
+    assert by_trip[trip_id(1)].vehicle_id == "2045"
+    assert by_trip[trip_id(1)].vehicle_confirmed
+    # Next trip of the tram now running D -> A: expected, not confirmed.
+    assert by_trip[trip_id(2)].vehicle_id == "2011"
+    assert not by_trip[trip_id(2)].vehicle_confirmed
+    # Nothing known about the trams of the later trips.
+    assert by_trip[trip_id(3)].vehicle_id is None
+    # Without vehicles, departures are unchanged.
+    assert all(
+        dep.vehicle_id is None
+        for dep in compute_departures(static, snapshot, KEY_B, paris(8, 12))
+    )
+
+
 def test_arrival_at_terminus_is_not_a_departure(gtfs_zip: Path) -> None:
     """Trams reaching the end of their trip do not depart from it."""
     static = parse_static(gtfs_zip, {"D"})

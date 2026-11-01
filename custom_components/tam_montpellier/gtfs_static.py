@@ -15,6 +15,7 @@ import csv
 from dataclasses import dataclass, field, fields, replace
 from datetime import date, datetime, time, timedelta
 import io
+from itertools import pairwise
 from operator import itemgetter
 from pathlib import Path
 import pickle
@@ -108,6 +109,8 @@ class StaticData:
     """Letter naming a direction of a circular line, "a" for line "4a"."""
     other_routes: dict[str, Route] = field(default_factory=dict)
     """Bus lines of the archive that were not chosen, offered as extra lines."""
+    previous_trips: dict[str, str] = field(default_factory=dict)
+    """trip_id -> trip run just before by the same tram (same block)."""
 
     def stop_platforms(self, stop_id: str) -> tuple[str, ...]:
         """Return the platforms of a stop: works may move its departures."""
@@ -331,7 +334,15 @@ def parse_static(
 
         trips: dict[str, TripInfo] = {}
         headsigns: dict[LineKey, Counter[str]] = defaultdict(Counter)
-        for trip_id, route_id, direction_id, headsign, service_id in _read_columns(
+        blocks: dict[str, str] = {}
+        for (
+            trip_id,
+            route_id,
+            direction_id,
+            headsign,
+            service_id,
+            block_id,
+        ) in _read_columns(
             archive,
             "trips.txt",
             "trip_id",
@@ -339,9 +350,12 @@ def parse_static(
             "direction_id",
             "trip_headsign",
             "service_id",
+            "block_id",
         ):
             if route_id not in routes:
                 continue
+            if block_id:
+                blocks[trip_id] = sys.intern(block_id)
             info = TripInfo(
                 route_id=route_id,
                 direction_id=int(direction_id or 0),
@@ -532,6 +546,7 @@ def parse_static(
                     for item in stop_list
                 ]
 
+    starts = {trip_id: start[2] for trip_id, start in trip_starts.items()}
     return StaticData(
         timezone=timezone,
         routes=routes,
@@ -551,11 +566,41 @@ def parse_static(
         clockwise=clockwise,
         variants=variants,
         other_routes=other_routes,
+        previous_trips=_previous_trips(trips, blocks, starts),
     )
 
 
+_ACTIVE_COPY = re.compile(r"^U_(\d+)-\d+$")
+
+
+def _previous_trips(
+    trips: dict[str, TripInfo], blocks: dict[str, str], starts: dict[str, int]
+) -> dict[str, str]:
+    """Chain the trips run one after the other by the same tram.
+
+    The trips of a block are run by one tram. Only the inactive copies of the
+    trips (``1583466978``) carry their block: the active ones
+    (``U_1583466978-10``), which the real-time feed names, take it from their
+    copy. Trips are chained within the same service, by start time.
+    """
+    chains: dict[tuple[str, str], list[tuple[int, str]]] = defaultdict(list)
+    for trip_id, info in trips.items():
+        block = blocks.get(trip_id)
+        if block is None and (match := _ACTIVE_COPY.match(trip_id)):
+            block = blocks.get(match.group(1))
+        if block is None or trip_id not in starts:
+            continue
+        chains[(info.service_id, block)].append((starts[trip_id], trip_id))
+    previous: dict[str, str] = {}
+    for chain in chains.values():
+        chain.sort()
+        for (_before, earlier), (_after, later) in pairwise(chain):
+            previous[later] = earlier
+    return previous
+
+
 # Bump when the parsing changes without changing the fields of StaticData.
-_CACHE_VERSION = 4
+_CACHE_VERSION = 5
 
 
 def load_static(

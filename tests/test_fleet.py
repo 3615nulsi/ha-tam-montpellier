@@ -13,6 +13,7 @@ from custom_components.tam_montpellier.fleet import (
     fleet_lines,
     parse_vehicle_positions,
     trip_update_vehicles,
+    trip_vehicles,
 )
 from custom_components.tam_montpellier.gtfs_static import parse_static
 
@@ -96,3 +97,30 @@ def test_tracker_sorts_fleet_numbers() -> None:
         {vehicle_id: Sighting("1", 0) for vehicle_id in ("2110", "998", "2004")}, 0
     )
     assert tracker.in_service(("1", None)) == ["998", "2004", "2110"]
+
+
+def test_trip_vehicles(gtfs_zip: Path) -> None:
+    """Both feeds tell the tram of a trip."""
+    static = parse_static(gtfs_zip)
+    snapshot = parse_trip_updates(
+        build_trip_updates(
+            {
+                "trip_id": trip_id(1),
+                "vehicle_id": "2045",
+                "stops": [("B", paris(8, 14), None, False)],
+            }
+        ),
+        set(static.routes),
+    )
+    sightings = trip_update_vehicles(snapshot, static)
+    sightings.update(
+        parse_vehicle_positions(
+            build_vehicle_positions(
+                ("2011", "1", 1, trip_id(1, direction=1)), ("2004", "1", 0)
+            )
+        )
+    )
+    assert trip_vehicles(sightings) == {
+        trip_id(1): "2045",
+        trip_id(1, direction=1): "2011",
+    }

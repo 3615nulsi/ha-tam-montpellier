@@ -49,6 +49,7 @@ from .fleet import (
     Sighting,
     parse_vehicle_positions,
     trip_update_vehicles,
+    trip_vehicles,
 )
 from .gtfs_static import StaticData, StopKey, load_static
 
@@ -100,6 +101,8 @@ class TamCoordinator(DataUpdateCoordinator[dict[StopKey, list[Departure]]]):
         """Trams in service, seen in the real-time feeds."""
         self.fleet_available = False
         """Whether a feed naming the trams answered at the last update."""
+        self.trip_vehicles: dict[str, str] = {}
+        """Fleet number of the tram running each trip, at the last update."""
         self.stop_keys: set[StopKey] = {
             stop_key_from_data(subentry.data)
             for subentry in entry.subentries.values()
@@ -239,10 +242,12 @@ class TamCoordinator(DataUpdateCoordinator[dict[StopKey, list[Departure]]]):
         """
         self.fleet_available = self._realtime_available or positions is not None
         if not self.fleet_available:
+            self.trip_vehicles = {}
             return
         sightings = trip_update_vehicles(snapshot, self.static)
         sightings.update(positions or {})
         self.fleet.update(sightings, dt_util.utcnow().timestamp())
+        self.trip_vehicles = trip_vehicles(sightings)
 
     def _compute_departures(
         self, snapshot: RealtimeSnapshot, now: datetime
@@ -250,7 +255,13 @@ class TamCoordinator(DataUpdateCoordinator[dict[StopKey, list[Departure]]]):
         include_added = self.config_entry.options.get(CONF_INCLUDE_ADDED_TRIPS, False)
         return {
             key: compute_departures(
-                self.static, snapshot, key, now, MAX_DEPARTURES, include_added
+                self.static,
+                snapshot,
+                key,
+                now,
+                MAX_DEPARTURES,
+                include_added,
+                self.trip_vehicles,
             )
             for key in self.stop_keys
         }

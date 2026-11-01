@@ -34,11 +34,12 @@ from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.event import async_track_point_in_utc_time
 from homeassistant.util import dt as dt_util
 
-from .const import SUBENTRY_TYPE_STOP
+from .const import CONF_ROUTE_ID, SUBENTRY_TYPE_STOP
 from .coordinator import TamConfigEntry, TamCoordinator
 from .departures import Departure
 from .entity import TamLineEntity, TamStopEntity
 from .fleet import fleet_lines
+from .vehicles import MODELS, VehicleSize, vehicle_model
 
 PARALLEL_UPDATES = 0
 
@@ -117,6 +118,18 @@ SENSOR_DESCRIPTIONS: tuple[TamSensorEntityDescription, ...] = (
 )
 
 
+NEXT_VEHICLE_DESCRIPTION = TamSensorEntityDescription(
+    key="next_vehicle",
+    translation_key="next_vehicle",
+    device_class=SensorDeviceClass.ENUM,
+    options=[model.key for model in MODELS],
+    index=0,
+    value_fn=lambda departure, _now: (
+        model.key if (model := vehicle_model(departure.vehicle_id)) else None
+    ),
+)
+
+
 ALERT_MESSAGE_DESCRIPTION = SensorEntityDescription(
     key="alert_message",
     translation_key="alert_message",
@@ -152,6 +165,12 @@ async def async_setup_entry(
             TamDepartureSensor(coordinator, subentry, description)
             for description in SENSOR_DESCRIPTIONS
         ]
+        route = coordinator.static.routes.get(subentry.data[CONF_ROUTE_ID])
+        if route is not None and route.is_tram:
+            # Bus fleet numbers do not tell their model.
+            entities.append(
+                TamDepartureSensor(coordinator, subentry, NEXT_VEHICLE_DESCRIPTION)
+            )
         entities.append(
             TamAlertMessageSensor(coordinator, subentry, ALERT_MESSAGE_DESCRIPTION)
         )
@@ -251,6 +270,7 @@ class TamDepartureSensor(TamStopEntity, SensorEntity):
             "destination": departure.headsign if departure else None,
             "source": departure.source.value if departure else None,
             "delay": _delay_minutes(departure),
+            **_vehicle_attributes(departure),
         }
         if self._clockwise is not None:
             attributes["clockwise"] = self._clockwise
@@ -263,10 +283,24 @@ class TamDepartureSensor(TamStopEntity, SensorEntity):
                     "destination": dep.headsign,
                     "source": dep.source.value,
                     "delay": _delay_minutes(dep),
+                    **_vehicle_attributes(dep),
                 }
                 for dep in departures
             ]
         return attributes
+
+
+def _vehicle_attributes(departure: Departure | None) -> dict[str, Any]:
+    """Return the tram of a departure: fleet number, model and length."""
+    vehicle_id = departure.vehicle_id if departure else None
+    model = vehicle_model(vehicle_id)
+    return {
+        "vehicle": vehicle_id,
+        "vehicle_model": model.name if model else None,
+        "vehicle_size": model.size.value if model else None,
+        "vehicle_length": model.length if model else None,
+        "vehicle_confirmed": departure.vehicle_confirmed if vehicle_id else None,
+    }
 
 
 def _delay_minutes(departure: Departure | None) -> int | None:
@@ -342,10 +376,18 @@ class TamVehiclesSensor(TamLineEntity, SensorEntity):
     def extra_state_attributes(self) -> dict[str, Any]:
         """Return the line, the instant count and the fleet numbers."""
         fleet = self.coordinator.fleet
+        vehicles = fleet.in_service(self._fleet_line)
         return {
             "line": self._line,
             "line_color": f"#{self._route.color}" if self._route else None,
             "line_text_color": f"#{self._route.text_color}" if self._route else None,
             "running": fleet.running(self._fleet_line),
-            "vehicles": fleet.in_service(self._fleet_line),
+            "vehicles": vehicles,
+            # Lets the card show tram lengths only where both kinds run.
+            "short_vehicles": sum(
+                1
+                for vehicle_id in vehicles
+                if (model := vehicle_model(vehicle_id))
+                and model.size is VehicleSize.SHORT
+            ),
         }

@@ -100,6 +100,25 @@
           },
           "clockwise": {
             "name": "Sens horaire"
+          },
+          "vehicle": {
+            "name": "Numéro de rame"
+          },
+          "vehicle_model": {
+            "name": "Modèle"
+          },
+          "vehicle_size": {
+            "name": "Longueur de rame",
+            "state": {
+              "short": "Courte",
+              "long": "Longue"
+            }
+          },
+          "vehicle_length": {
+            "name": "Longueur (m)"
+          },
+          "vehicle_confirmed": {
+            "name": "Confirmée"
           }
         }
       },
@@ -131,6 +150,25 @@
           },
           "clockwise": {
             "name": "Sens horaire"
+          },
+          "vehicle": {
+            "name": "Numéro de rame"
+          },
+          "vehicle_model": {
+            "name": "Modèle"
+          },
+          "vehicle_size": {
+            "name": "Longueur de rame",
+            "state": {
+              "short": "Courte",
+              "long": "Longue"
+            }
+          },
+          "vehicle_length": {
+            "name": "Longueur (m)"
+          },
+          "vehicle_confirmed": {
+            "name": "Confirmée"
           }
         }
       },
@@ -162,6 +200,25 @@
           },
           "clockwise": {
             "name": "Sens horaire"
+          },
+          "vehicle": {
+            "name": "Numéro de rame"
+          },
+          "vehicle_model": {
+            "name": "Modèle"
+          },
+          "vehicle_size": {
+            "name": "Longueur de rame",
+            "state": {
+              "short": "Courte",
+              "long": "Longue"
+            }
+          },
+          "vehicle_length": {
+            "name": "Longueur (m)"
+          },
+          "vehicle_confirmed": {
+            "name": "Confirmée"
           }
         }
       },
@@ -196,6 +253,81 @@
           },
           "departures": {
             "name": "Prochains passages"
+          },
+          "vehicle": {
+            "name": "Numéro de rame"
+          },
+          "vehicle_model": {
+            "name": "Modèle"
+          },
+          "vehicle_size": {
+            "name": "Longueur de rame",
+            "state": {
+              "short": "Courte",
+              "long": "Longue"
+            }
+          },
+          "vehicle_length": {
+            "name": "Longueur (m)"
+          },
+          "vehicle_confirmed": {
+            "name": "Confirmée"
+          }
+        }
+      },
+      "next_vehicle": {
+        "name": "Rame du prochain passage",
+        "state": {
+          "citadis_401": "Citadis 401",
+          "citadis_302": "Citadis 302",
+          "citadis_402": "Citadis 402",
+          "caf_urbos": "CAF Urbos"
+        },
+        "state_attributes": {
+          "line": {
+            "name": "Ligne"
+          },
+          "line_color": {
+            "name": "Couleur de la ligne"
+          },
+          "line_text_color": {
+            "name": "Couleur du texte"
+          },
+          "destination": {
+            "name": "Destination"
+          },
+          "source": {
+            "name": "Source",
+            "state": {
+              "realtime": "Temps réel",
+              "estimated": "Estimé",
+              "scheduled": "Théorique"
+            }
+          },
+          "delay": {
+            "name": "Retard (min)"
+          },
+          "clockwise": {
+            "name": "Sens horaire"
+          },
+          "vehicle": {
+            "name": "Numéro de rame"
+          },
+          "vehicle_model": {
+            "name": "Modèle"
+          },
+          "vehicle_size": {
+            "name": "Longueur de rame",
+            "state": {
+              "short": "Courte",
+              "long": "Longue"
+            }
+          },
+          "vehicle_length": {
+            "name": "Longueur (m)"
+          },
+          "vehicle_confirmed": {
+            "name": "Confirmée"
           }
         }
       },
@@ -231,6 +363,9 @@
           },
           "vehicles": {
             "name": "Numéros des rames"
+          },
+          "short_vehicles": {
+            "name": "Rames courtes en service"
           }
         }
       }
