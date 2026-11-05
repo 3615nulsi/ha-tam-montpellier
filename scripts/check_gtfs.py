@@ -183,9 +183,15 @@ def check_realtime(static) -> tuple[list[str], str]:
     except OSError as err:
         return [], f"Real-time feed unavailable: {err}"
     trams = {route_id for route_id, route in static.routes.items() if route.is_tram}
-    trips = departures.parse_trip_updates(payload, trams).trips
+    parsed = departures.parse_trip_updates(payload, trams).trips
+    # Runs flagged ADDED are replacement services published during disruptions:
+    # they are never in the archive, and can outnumber the regular trips.
+    trips = [trip for trip in parsed if not trip.added]
+    added = len(parsed) - len(trips)
     known = sum(trip.trip_id in static.trips for trip in trips)
     note = f"Real-time feed: {known} of {len(trips)} tram trips known to the archive."
+    if added:
+        note += f" {added} added runs (disruption) not counted."
     if len(trips) >= _MIN_REALTIME_TRIPS and known < len(trips) * _MIN_KNOWN_TRIPS:
         return [f"{note} The trip ids of the two feeds no longer match."], note
     return [], note
