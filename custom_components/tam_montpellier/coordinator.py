@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Mapping
 import csv
 from datetime import datetime
 from http import HTTPStatus
 import json
 import logging
 from pathlib import Path
+from typing import Any
 import zipfile
 import zlib
 
@@ -86,7 +88,7 @@ GTFS_ERRORS = (
 )
 
 
-def stop_key_from_data(data: dict) -> StopKey:
+def stop_key_from_data(data: Mapping[str, Any]) -> StopKey:
     """Build the stop key of a stop subentry."""
     return (data[CONF_STOP_ID], data[CONF_ROUTE_ID], int(data[CONF_DIRECTION_ID]))
 

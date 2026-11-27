@@ -9,7 +9,7 @@ run from scripts.
 from __future__ import annotations
 
 from collections import Counter, defaultdict
-from collections.abc import Iterable, Iterator
+from collections.abc import Iterable, Iterator, Sequence
 from contextlib import suppress
 import csv
 from dataclasses import dataclass, field, fields, replace
@@ -283,7 +283,7 @@ def _direction_label(
 
 
 def _is_clockwise(
-    stops: list[str], positions: dict[str, tuple[float, float]]
+    stops: Sequence[str], positions: dict[str, tuple[float, float]]
 ) -> bool | None:
     """Tell if a loop runs clockwise on the map, from its signed area."""
     points = [positions[stop_id] for stop_id in stops if stop_id in positions]

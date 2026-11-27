@@ -99,7 +99,10 @@ def fleet_lines(static: StaticData) -> list[FleetLine]:
         if not route.is_tram:
             continue  # Only trams are counted.
         directions = sorted(d for r, d in static.variants if r == route_id)
-        lines.extend((route_id, d) for d in directions or [None])
+        if directions:
+            lines.extend((route_id, d) for d in directions)
+        else:
+            lines.append((route_id, None))
     return lines
 
 

@@ -204,7 +204,7 @@ def compute_departures(
         for platform in platforms:
             if platform not in trip.times or platform == end:
                 continue
-            timestamp, delay = trip.times[platform]
+            timestamp, announced_delay = trip.times[platform]
             if timestamp < now_ts:
                 continue
             if static_trip is not None and static_trip.headsign:
@@ -219,7 +219,7 @@ def compute_departures(
                     route_id=route_id,
                     headsign=headsign,
                     source=DepartureSource.REALTIME,
-                    delay=delay,
+                    delay=announced_delay,
                     trip_id=trip.trip_id,
                 )
             )
@@ -295,9 +295,9 @@ def _with_vehicle(
     """Name the tram of a departure, confirmed or expected from its block."""
     if (vehicle_id := vehicles.get(departure.trip_id)) is not None:
         return replace(departure, vehicle_id=vehicle_id, vehicle_confirmed=True)
-    trip_id = departure.trip_id
+    trip_id: str | None = departure.trip_id
     for _ in range(MAX_BLOCK_LOOKBACK):
-        if (trip_id := static.previous_trips.get(trip_id)) is None:
+        if (trip_id := static.previous_trips.get(trip_id or "")) is None:
             break
         if (vehicle_id := vehicles.get(trip_id)) is not None:
             return replace(departure, vehicle_id=vehicle_id)

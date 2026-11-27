@@ -58,7 +58,7 @@ class TamSensorEntityDescription(SensorEntityDescription):
 
     index: int
     """Index of the departure in the list of upcoming departures."""
-    value_fn: Callable[[Departure, datetime], datetime | int | str]
+    value_fn: Callable[[Departure, datetime], datetime | int | str | None]
     minute_precision: bool = False
     """Rewrite the state each time a displayed minute count changes."""
 
@@ -419,7 +419,9 @@ def _vehicle_attributes(departure: Departure | None) -> dict[str, Any]:
         "vehicle_model": model.name if model else None,
         "vehicle_size": model.size.value if model else None,
         "vehicle_length": model.length if model else None,
-        "vehicle_confirmed": departure.vehicle_confirmed if vehicle_id else None,
+        "vehicle_confirmed": (
+            departure.vehicle_confirmed if departure and vehicle_id else None
+        ),
     }
 
 
