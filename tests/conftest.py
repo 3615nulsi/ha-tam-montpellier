@@ -231,14 +231,13 @@ def build_alerts(*alerts: dict) -> bytes:
 def find_device(hass: HomeAssistant, identifier: str) -> dr.DeviceEntry | None:
     """Return the device of the integration with this identifier.
 
-    Searched among all devices: newer Home Assistant versions refuse
-    ``async_get_device``, whose replacement older ones do not have.
+    Looked for through the config entries: newer Home Assistant versions
+    refuse ``async_get_device`` and lookups in ``devices``, whose
+    replacements older ones do not have.
     """
-    return next(
-        (
-            device
-            for device in dr.async_get(hass).devices.values()
-            if ("tam_montpellier", identifier) in device.identifiers
-        ),
-        None,
-    )
+    registry = dr.async_get(hass)
+    for entry in hass.config_entries.async_entries("tam_montpellier"):
+        for device in dr.async_entries_for_config_entry(registry, entry.entry_id):
+            if ("tam_montpellier", identifier) in device.identifiers:
+                return device
+    return None
