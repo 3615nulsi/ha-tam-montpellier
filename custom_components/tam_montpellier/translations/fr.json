@@ -3,21 +3,45 @@
     "step": {
       "user": {
         "title": "TaM Montpellier",
-        "description": "Horaires en temps réel du tramway de Montpellier (open data TaM, licence ODbL). Les adresses par défaut conviennent ; elles ne sont à modifier que si l'opérateur les change.\n\nUne fois l'intégration ajoutée, utilisez « Ajouter un arrêt » pour choisir les arrêts à suivre.",
-        "data": {
-          "trip_updates_url": "Flux temps réel (GTFS-RT TripUpdate)",
-          "gtfs_url": "Horaires théoriques (GTFS)",
-          "alerts_url": "Alertes trafic (GTFS-RT Alert)",
-          "vehicle_positions_url": "Positions des rames (GTFS-RT VehiclePosition)"
+        "description": "Horaires en temps réel du tramway de Montpellier (open data TaM, licence ODbL).\n\nUne fois l'intégration ajoutée, utilisez « Ajouter un arrêt » pour choisir les arrêts à suivre.",
+        "sections": {
+          "advanced": {
+            "name": "Avancé : sources de données",
+            "description": "Les adresses par défaut conviennent ; elles ne sont à modifier que si l'opérateur les change.",
+            "data": {
+              "trip_updates_url": "Flux temps réel (GTFS-RT TripUpdate)",
+              "gtfs_url": "Horaires théoriques (GTFS)",
+              "alerts_url": "Alertes trafic (GTFS-RT Alert)",
+              "vehicle_positions_url": "Positions des rames (GTFS-RT VehiclePosition)"
+            }
+          }
+        }
+      },
+      "reconfigure": {
+        "title": "Sources de données TaM",
+        "description": "Modifiez les adresses des flux TaM. Les arrêts suivis sont conservés.",
+        "sections": {
+          "advanced": {
+            "name": "Sources de données",
+            "data": {
+              "trip_updates_url": "Flux temps réel (GTFS-RT TripUpdate)",
+              "gtfs_url": "Horaires théoriques (GTFS)",
+              "alerts_url": "Alertes trafic (GTFS-RT Alert)",
+              "vehicle_positions_url": "Positions des rames (GTFS-RT VehiclePosition)"
+            }
+          }
         }
       }
     },
     "error": {
       "cannot_connect": "Impossible de joindre le flux temps réel.",
-      "invalid_feed": "La réponse n'est pas un flux GTFS-RT valide."
+      "invalid_feed": "L'adresse du flux temps réel ne renvoie pas un flux GTFS-RT valide.",
+      "gtfs_cannot_connect": "Impossible de joindre les horaires théoriques (GTFS).",
+      "invalid_gtfs": "L'adresse des horaires théoriques ne renvoie pas une archive GTFS (zip)."
     },
     "abort": {
-      "single_instance_allowed": "L'intégration est déjà configurée. Ajoutez des arrêts depuis sa page."
+      "single_instance_allowed": "L'intégration est déjà configurée. Ajoutez des arrêts depuis sa page.",
+      "reconfigure_successful": "Les sources de données sont mises à jour."
     }
   },
   "config_subentries": {
@@ -272,6 +296,12 @@
           },
           "vehicle_confirmed": {
             "name": "Confirmée"
+          },
+          "stop_name": {
+            "name": "Arrêt"
+          },
+          "direction": {
+            "name": "Direction"
           }
         }
       },
@@ -392,6 +422,20 @@
     },
     "abort": {
       "entry_not_loaded": "L'intégration n'est pas chargée : les lignes de bus ne peuvent pas être listées."
+    }
+  },
+  "issues": {
+    "gtfs_stale": {
+      "title": "Horaires TaM périmés",
+      "description": "Les horaires théoriques TaM (GTFS) ont été téléchargés pour la dernière fois le {date}, ou ils ne prévoient aucun passage aujourd'hui ni demain. Des passages peuvent manquer ou être faux.\n\nVérifiez que Home Assistant peut joindre l'adresse des horaires (page de l'intégration, « Reconfigurer »). L'intégration les retélécharge chaque nuit ; ce message disparaît dès qu'une archive à jour est chargée."
+    },
+    "stop_missing": {
+      "title": "Arrêt plus desservi : {stop}",
+      "description": "L'arrêt « {stop} » n'est plus dans les horaires TaM : ses capteurs n'affichent aucun passage. L'opérateur l'a peut-être renommé ou déplacé.\n\nSur la page de l'intégration, supprimez cet arrêt puis ajoutez-le à nouveau avec « Ajouter un arrêt »."
+    },
+    "route_missing": {
+      "title": "La ligne {line} n'est plus dans les horaires",
+      "description": "La ligne {line} n'est plus dans les horaires TaM. Arrêts suivis sur cette ligne : {stops}. Leurs capteurs n'affichent aucun passage.\n\nSi la ligne a changé de numéro, supprimez ces arrêts sur la page de l'intégration et ajoutez-les à nouveau sur la nouvelle ligne."
     }
   }
 }

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+import hashlib
 import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -12,13 +13,16 @@ from homeassistant.components.http import StaticPathConfig
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryNotReady
-from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers import config_validation as cv, device_registry as dr
 from homeassistant.helpers.event import async_track_time_change
 from homeassistant.helpers.typing import ConfigType
 from homeassistant.loader import async_get_integration
 
-from .const import DOMAIN, GTFS_REFRESH_HOUR, GTFS_REFRESH_MINUTE
+from .const import DOMAIN, GTFS_REFRESH_HOUR, GTFS_REFRESH_MINUTE, GTFS_REFRESH_SPREAD
 from .coordinator import GTFS_ERRORS, GtfsDownloadError, TamConfigEntry, TamCoordinator
+from .entity import line_device_id
+from .fleet import fleet_lines
+from .issues import async_delete_issues, async_update_issues
 
 if TYPE_CHECKING:
     from homeassistant.components.lovelace.resources import ResourceStorageCollection
@@ -128,25 +132,32 @@ async def async_setup_entry(hass: HomeAssistant, entry: TamConfigEntry) -> bool:
             translation_key="gtfs_unavailable",
             translation_placeholders={"error": str(err)},
         ) from err
+    await async_update_issues(hass, entry, coordinator)
+    _remove_stale_line_devices(hass, entry, coordinator)
     await coordinator.async_config_entry_first_refresh()
     entry.runtime_data = coordinator
 
     async def _async_refresh_static(_now: datetime) -> None:
         """Reload the GTFS archive, published daily by the operator."""
+        lines = _lines(coordinator)
         try:
             await coordinator.async_load_static(force_download=True)
         except GTFS_ERRORS as err:
             _LOGGER.warning("Could not reload the TaM GTFS archive: %s", err)
             return
+        if _lines(coordinator) != lines:
+            # Entities are made from the lines: a new or a renamed line needs
+            # them made again.
+            _LOGGER.info("The TaM lines changed, reloading the integration")
+            hass.config_entries.async_schedule_reload(entry.entry_id)
+            return
+        await async_update_issues(hass, entry, coordinator)
         await coordinator.async_request_refresh()
 
+    hour, minute, second = gtfs_refresh_time(entry.entry_id)
     entry.async_on_unload(
         async_track_time_change(
-            hass,
-            _async_refresh_static,
-            hour=GTFS_REFRESH_HOUR,
-            minute=GTFS_REFRESH_MINUTE,
-            second=0,
+            hass, _async_refresh_static, hour=hour, minute=minute, second=second
         )
     )
     # Stops are config subentries: reload to pick up added or removed stops.
@@ -154,6 +165,43 @@ async def async_setup_entry(hass: HomeAssistant, entry: TamConfigEntry) -> bool:
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     return True
+
+
+def _lines(coordinator: TamCoordinator) -> tuple[set[str], dict[tuple[str, int], str]]:
+    """Return what the entities are made from: the lines and their variants."""
+    return set(coordinator.static.routes), dict(coordinator.static.variants)
+
+
+def _remove_stale_line_devices(
+    hass: HomeAssistant, entry: TamConfigEntry, coordinator: TamCoordinator
+) -> None:
+    """Remove the devices of the lines no longer in the timetables.
+
+    Stop devices are left alone: their sensors stay, and a repair issue
+    tells about a stop or a line gone.
+    """
+    current = {line_device_id(line) for line in fleet_lines(coordinator.static)}
+    registry = dr.async_get(hass)
+    for device in dr.async_entries_for_config_entry(registry, entry.entry_id):
+        identifiers = {key for domain, key in device.identifiers if domain == DOMAIN}
+        lines = {key for key in identifiers if key.startswith("line_")}
+        if lines and not lines & current:
+            registry.async_update_device(
+                device.id, remove_config_entry_id=entry.entry_id
+            )
+
+
+def gtfs_refresh_time(entry_id: str) -> tuple[int, int, int]:
+    """Return the time of the nightly download, the same for an installation.
+
+    Spread over an hour from one installation to another, so that they do not
+    all download the archive from the TaM servers at once.
+    """
+    digest = hashlib.sha256(entry_id.encode()).digest()
+    offset = int.from_bytes(digest[:4]) % int(GTFS_REFRESH_SPREAD.total_seconds())
+    seconds = GTFS_REFRESH_HOUR * 3600 + GTFS_REFRESH_MINUTE * 60 + offset
+    hour, rest = divmod(seconds, 3600)
+    return hour, *divmod(rest, 60)
 
 
 async def _async_load_static(coordinator: TamCoordinator) -> None:
@@ -167,7 +215,8 @@ async def _async_load_static(coordinator: TamCoordinator) -> None:
             "Could not read the cached TaM GTFS archive, downloading it again: %r",
             err,
         )
-        await coordinator.async_load_static(force_download=True)
+        # Not conditional: the server would tell the broken archive is current.
+        await coordinator.async_load_static(force_download=True, conditional=False)
 
 
 async def _async_update_listener(hass: HomeAssistant, entry: TamConfigEntry) -> None:
@@ -182,6 +231,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: TamConfigEntry) -> bool
 
 async def async_remove_entry(hass: HomeAssistant, entry: TamConfigEntry) -> None:
     """Remove the card from the dashboard resources with the integration."""
+    async_delete_issues(hass)
     try:
         if (resources := await _async_stored_resources(hass)) is None:
             return

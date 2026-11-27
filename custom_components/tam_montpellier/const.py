@@ -30,6 +30,13 @@ DEFAULT_VEHICLE_POSITIONS_URL: Final = (
     "https://gtfsproxy.e-tam.fr/COMMON/VehiclePosition.pb"
 )
 
+DEFAULT_URLS: Final = {
+    CONF_TRIP_UPDATES_URL: DEFAULT_TRIP_UPDATES_URL,
+    CONF_GTFS_URL: DEFAULT_GTFS_URL,
+    CONF_ALERTS_URL: DEFAULT_ALERTS_URL,
+    CONF_VEHICLE_POSITIONS_URL: DEFAULT_VEHICLE_POSITIONS_URL,
+}
+
 # GTFS route_type 0 = tram / light rail.
 TRAM_ROUTE_TYPE: Final = "0"
 # GTFS route_type 3 = bus.
@@ -40,8 +47,11 @@ REQUEST_TIMEOUT: Final = 20
 GTFS_DOWNLOAD_TIMEOUT: Final = 180
 # The GTFS archive is regenerated daily by the operator.
 GTFS_MAX_AGE: Final = timedelta(hours=20)
+# The archive is downloaded again each night, at a time between 3:30 and
+# 4:30 that depends on the installation.
 GTFS_REFRESH_HOUR: Final = 3
 GTFS_REFRESH_MINUTE: Final = 30
+GTFS_REFRESH_SPREAD: Final = timedelta(hours=1)
 
 # Number of upcoming departures exposed in the sensor attributes.
 MAX_DEPARTURES: Final = 6

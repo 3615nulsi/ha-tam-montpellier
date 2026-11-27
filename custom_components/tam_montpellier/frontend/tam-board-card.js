@@ -55,6 +55,24 @@ ha-card { overflow: hidden; }
 `;
 
 /**
+ * Role of one of the integration's entities: "minutes", "alert" or "fleet".
+ *
+ * Told by its translation key, which names do not change. Older Home
+ * Assistant versions do not give it: the attributes tell the role then.
+ */
+function entityRole(hass, entry) {
+  const key = entry.translation_key;
+  if (key !== undefined) {
+    return { minutes_to_next_departure: "minutes", alert_message: "alert", vehicles_in_service: "fleet" }[key];
+  }
+  const attributes = hass.states[entry.entity_id]?.attributes || {};
+  if (Array.isArray(attributes.vehicles)) return "fleet";
+  if ("departures" in attributes) return "minutes";
+  if ("alert_count" in attributes) return "alert";
+  return undefined;
+}
+
+/**
  * Sensors of a monitored stop, found through its device, and the sensors
  * counting the trams of each line, by line name.
  */
@@ -64,13 +82,14 @@ function stopEntities(hass, deviceId) {
     if (entry.platform !== DOMAIN) continue;
     const state = hass.states[entry.entity_id];
     if (!state) continue;
-    if (Array.isArray(state.attributes.vehicles)) {
+    const role = entityRole(hass, entry);
+    if (role === "fleet") {
       result.fleet[String(state.attributes.line)] = entry.entity_id;
       continue;
     }
     if (!deviceId || entry.device_id !== deviceId) continue;
-    if ("departures" in state.attributes) result.minutes = entry.entity_id;
-    else if ("alert_count" in state.attributes) result.alert = entry.entity_id;
+    if (role === "minutes") result.minutes = entry.entity_id;
+    else if (role === "alert") result.alert = entry.entity_id;
   }
   return result;
 }
@@ -80,10 +99,25 @@ function stopDevices(hass) {
   const ids = new Set(
     Object.values(hass.entities || {})
       .filter((entry) => entry.platform === DOMAIN && entry.device_id
-        && "departures" in (hass.states[entry.entity_id]?.attributes || {}))
+        && hass.states[entry.entity_id] && entityRole(hass, entry) === "minutes")
       .map((entry) => entry.device_id),
   );
   return [...ids].map((id) => hass.devices?.[id]).filter(Boolean);
+}
+
+/**
+ * Stop and direction of the minutes sensor.
+ *
+ * Given as attributes since version 1.0; before, read from the name of the
+ * sensor, "Comédie → Mosson (Tram 1) Minutes avant le prochain passage",
+ * which a renamed device changes.
+ */
+function stopTitle(attributes) {
+  if (attributes.stop_name !== undefined) {
+    return [attributes.stop_name, attributes.direction || ''];
+  }
+  const title = (attributes.friendly_name || '').split(/ \((?:Tram|Bus) /)[0];
+  return title.includes(' → ') ? title.split(' → ') : [title, ''];
 }
 
 // ---------------------------------------------------------------------------
@@ -278,9 +312,7 @@ function render(entity, states, hass, variables, alertEntity, fleetEntity) {
   let accent = color;
   if (!darkTheme && luminance > 0.62) accent = `color-mix(in srgb, ${color} 62%, #000)`;
   if (darkTheme && luminance < 0.4) accent = `color-mix(in srgb, ${color} 55%, #fff)`;
-  // "Comédie → Mosson (Tram 1) Minutes avant le prochain passage", or "(Bus 22)".
-  const title = (a.friendly_name || '').split(/ \((?:Tram|Bus) /)[0];
-  const [stopName, direction] = title.includes(' → ') ? title.split(' → ') : [title, ''];
+  const [stopName, direction] = stopTitle(a);
   const stop = variables.stop_name || stopName;
   const towards = variables.direction || direction;
   const deps = Array.isArray(a.departures) ? a.departures : [];

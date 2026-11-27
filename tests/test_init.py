@@ -20,6 +20,8 @@ from pytest_homeassistant_custom_component.test_util.aiohttp import (
     AiohttpClientMocker,
 )
 
+from custom_components.tam_montpellier import gtfs_refresh_time
+from custom_components.tam_montpellier.config_flow import SECTION_ADVANCED
 from custom_components.tam_montpellier.const import (
     CONF_ALERTS_URL,
     CONF_DIRECTION_ID,
@@ -111,6 +113,19 @@ def _gtfs_without(name: str) -> bytes:
     return buffer.getvalue()
 
 
+def _gtfs_with_line_2() -> bytes:
+    """Return the synthetic GTFS archive with a second tram line."""
+    source = zipfile.ZipFile(io.BytesIO(build_gtfs()))
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as archive:
+        for info in source.infolist():
+            content = source.read(info)
+            if info.filename == "routes.txt":
+                content += b"2,2,Line two,0,TAM,FF7F00,FFFFFF\n"
+            archive.writestr(info, content)
+    return buffer.getvalue()
+
+
 def _gtfs_downloads(aioclient_mock: AiohttpClientMocker) -> int:
     return sum(str(call[1]) == DEFAULT_GTFS_URL for call in aioclient_mock.mock_calls)
 
@@ -136,37 +151,112 @@ def _entry(with_stop: bool = True) -> MockConfigEntry:
 
 
 async def test_user_flow(hass: HomeAssistant, mock_feeds: AiohttpClientMocker) -> None:
-    """The user flow checks the real-time feed and creates the entry."""
+    """The user flow checks the feeds and creates the entry."""
     result = await hass.config_entries.flow.async_init(
         DOMAIN, context={"source": "user"}
     )
     assert result["type"] is FlowResultType.FORM
     result = await hass.config_entries.flow.async_configure(
-        result["flow_id"], ENTRY_DATA
+        result["flow_id"], {SECTION_ADVANCED: ENTRY_DATA}
     )
     assert result["type"] is FlowResultType.CREATE_ENTRY
     assert result["data"] == ENTRY_DATA
 
 
+@pytest.mark.parametrize(
+    ("url", "response", "error"),
+    [
+        (DEFAULT_TRIP_UPDATES_URL, {"exc": ClientError()}, "cannot_connect"),
+        (
+            DEFAULT_TRIP_UPDATES_URL,
+            {"content": b"not a protobuf \xff\xff"},
+            "invalid_feed",
+        ),
+        (DEFAULT_GTFS_URL, {"exc": ClientError()}, "gtfs_cannot_connect"),
+        (DEFAULT_GTFS_URL, {"status": 404}, "gtfs_cannot_connect"),
+        (DEFAULT_GTFS_URL, {"content": b"<html></html>"}, "invalid_gtfs"),
+        (DEFAULT_GTFS_URL, {"content": b"PK"}, "invalid_gtfs"),
+    ],
+)
 async def test_user_flow_errors(
-    hass: HomeAssistant, aioclient_mock: AiohttpClientMocker
+    hass: HomeAssistant,
+    aioclient_mock: AiohttpClientMocker,
+    url: str,
+    response: dict,
+    error: str,
 ) -> None:
-    """Connection and format errors are reported."""
-    aioclient_mock.get(DEFAULT_TRIP_UPDATES_URL, exc=ClientError())
+    """Each unusable data source is reported, then the flow can go on."""
+    aioclient_mock.get(url, **response)
+    _serve_feeds(aioclient_mock)
     result = await hass.config_entries.flow.async_init(
         DOMAIN, context={"source": "user"}
     )
     result = await hass.config_entries.flow.async_configure(
-        result["flow_id"], ENTRY_DATA
+        result["flow_id"], {SECTION_ADVANCED: ENTRY_DATA}
     )
-    assert result["errors"] == {"base": "cannot_connect"}
+    assert result["type"] is FlowResultType.FORM
+    assert result["errors"] == {"base": error}
 
     aioclient_mock.clear_requests()
-    aioclient_mock.get(DEFAULT_TRIP_UPDATES_URL, content=b"not a protobuf \xff\xff")
+    _serve_feeds(aioclient_mock)
     result = await hass.config_entries.flow.async_configure(
-        result["flow_id"], ENTRY_DATA
+        result["flow_id"], {SECTION_ADVANCED: ENTRY_DATA}
     )
-    assert result["errors"] == {"base": "invalid_feed"}
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+
+
+async def test_reconfigure_flow(
+    hass: HomeAssistant,
+    mock_feeds: AiohttpClientMocker,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """The data sources can be changed without losing the followed stops."""
+    freezer.move_to(paris(8, 12))
+    entry = _entry()
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    subentries = dict(entry.subentries)
+
+    new_alerts = "https://example.org/Alert.pb"
+    mock_feeds.get(new_alerts, content=build_alerts())
+    result = await entry.start_reconfigure_flow(hass)
+    assert result["type"] is FlowResultType.FORM
+    assert result["step_id"] == "reconfigure"
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {SECTION_ADVANCED: {**ENTRY_DATA, CONF_ALERTS_URL: new_alerts}},
+    )
+    await hass.async_block_till_done()
+    assert result["type"] is FlowResultType.ABORT
+    assert result["reason"] == "reconfigure_successful"
+    assert entry.data[CONF_ALERTS_URL] == new_alerts
+    assert entry.subentries == subentries
+    assert entry.state is ConfigEntryState.LOADED
+    assert hass.states.get(MINUTES_SENSOR) is not None
+
+
+async def test_reconfigure_flow_error(
+    hass: HomeAssistant,
+    mock_feeds: AiohttpClientMocker,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """A wrong address is reported and leaves the entry unchanged."""
+    freezer.move_to(paris(8, 12))
+    entry = _entry()
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    wrong = "https://example.org/GTFS.zip"
+    mock_feeds.get(wrong, content=b"<html></html>")
+    result = await entry.start_reconfigure_flow(hass)
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {SECTION_ADVANCED: {**ENTRY_DATA, CONF_GTFS_URL: wrong}}
+    )
+    assert result["type"] is FlowResultType.FORM
+    assert result["errors"] == {"base": "invalid_gtfs"}
+    assert entry.data == ENTRY_DATA
 
 
 async def test_sensors(
@@ -217,6 +307,29 @@ async def test_sensors(
     await entry.runtime_data.async_refresh()
     await hass.async_block_till_done()
     assert hass.states.get(NEXT_SENSOR).state == "2026-09-23T06:23:00+00:00"
+
+
+async def test_card_attributes_survive_renaming(
+    hass: HomeAssistant,
+    mock_feeds: AiohttpClientMocker,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """The stop and direction read by the card do not follow the device name."""
+    freezer.move_to(paris(8, 12))
+    entry = _entry()
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    device = dr.async_get(hass).async_get_device({(DOMAIN, "B_1_0")})
+    dr.async_get(hass).async_update_device(device.id, name_by_user="Maison")
+    assert await hass.config_entries.async_reload(entry.entry_id)
+    await hass.async_block_till_done()
+    attributes = hass.states.get(MINUTES_SENSOR).attributes
+    assert attributes["stop_name"] == "Bravo"
+    assert attributes["direction"] == "Delta"
+    entity = er.async_get(hass).async_get(MINUTES_SENSOR)
+    assert entity.translation_key == "minutes_to_next_departure"
 
 
 async def test_scheduled_departures_logged(
@@ -491,7 +604,7 @@ async def test_gtfs_cache_reused(
     await hass.async_block_till_done()
     assert _gtfs_downloads(mock_feeds) == 1
 
-    freezer.move_to(paris(3, 30, day=24))
+    freezer.move_to(paris(4, 31, day=24))
     async_fire_time_changed(hass, fire_all=True)
     await hass.async_block_till_done(wait_background_tasks=True)
     assert _gtfs_downloads(mock_feeds) == 2
@@ -520,7 +633,7 @@ async def test_invalid_gtfs_download_keeps_archive(
     # A web page served with a 200 status instead of the archive.
     mock_feeds.clear_requests()
     _serve_feeds(mock_feeds, gtfs=b"<html><body>Maintenance</body></html>")
-    freezer.move_to(paris(3, 30, day=24))
+    freezer.move_to(paris(4, 31, day=24))
     async_fire_time_changed(hass, fire_all=True)
     await hass.async_block_till_done(wait_background_tasks=True)
     assert _gtfs_downloads(mock_feeds) == 1
@@ -596,7 +709,7 @@ async def test_gtfs_parsed_once_per_download(
         await hass.async_block_till_done()
         assert parse.call_count == 1
 
-        freezer.move_to(paris(3, 30, day=24))
+        freezer.move_to(paris(4, 31, day=24))
         async_fire_time_changed(hass, fire_all=True)
         await hass.async_block_till_done(wait_background_tasks=True)
         assert _gtfs_downloads(mock_feeds) == 2
@@ -606,6 +719,150 @@ async def test_gtfs_parsed_once_per_download(
         assert await hass.config_entries.async_reload(entry.entry_id)
         await hass.async_block_till_done()
         assert parse.call_count == 2
+
+
+def test_gtfs_refresh_time() -> None:
+    """The nightly download is at a stable time between 3:30 and 4:30."""
+    times = {gtfs_refresh_time(f"entry{index}") for index in range(20)}
+    assert len(times) > 10
+    for hour, minute, second in times:
+        assert (3, 30, 0) <= (hour, minute, second) < (4, 30, 0)
+        assert 0 <= second < 60
+    assert gtfs_refresh_time("entry0") == gtfs_refresh_time("entry0")
+
+
+async def test_nightly_download_at_installation_time(
+    hass: HomeAssistant,
+    mock_feeds: AiohttpClientMocker,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """The archive is downloaded again at the time of the installation."""
+    await hass.config.async_set_time_zone("Europe/Paris")
+    freezer.move_to(paris(8, 12))
+    entry = _entry()
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    hour, minute, second = gtfs_refresh_time(entry.entry_id)
+    at = paris(hour, minute, second, day=24)
+
+    freezer.move_to(at - timedelta(seconds=2))
+    async_fire_time_changed(hass)
+    await hass.async_block_till_done(wait_background_tasks=True)
+    assert _gtfs_downloads(mock_feeds) == 1
+
+    freezer.move_to(at)
+    async_fire_time_changed(hass)
+    await hass.async_block_till_done(wait_background_tasks=True)
+    assert _gtfs_downloads(mock_feeds) == 2
+
+
+async def test_gtfs_not_modified(
+    hass: HomeAssistant,
+    aioclient_mock: AiohttpClientMocker,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """A server telling the archive did not change spares its download."""
+    await hass.config.async_set_time_zone("Europe/Paris")
+    freezer.move_to(paris(8, 12))
+    modified = "Wed, 23 Sep 2026 01:00:00 GMT"
+    aioclient_mock.get(
+        DEFAULT_GTFS_URL,
+        content=build_gtfs(),
+        headers={"ETag": '"v1"', "Last-Modified": modified},
+    )
+    _serve_feeds(aioclient_mock)
+    with patch(
+        "custom_components.tam_montpellier.gtfs_static.parse_static",
+        wraps=parse_static,
+    ) as parse:
+        entry = _entry()
+        entry.add_to_hass(hass)
+        assert await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+        archive = _gtfs_path(hass).read_bytes()
+        assert parse.call_count == 1
+
+        aioclient_mock.clear_requests()
+        aioclient_mock.get(DEFAULT_GTFS_URL, status=304)
+        _serve_feeds(aioclient_mock)
+        freezer.move_to(paris(4, 31, day=24))
+        async_fire_time_changed(hass, fire_all=True)
+        await hass.async_block_till_done(wait_background_tasks=True)
+
+    (request,) = [
+        call for call in aioclient_mock.mock_calls if str(call[1]) == DEFAULT_GTFS_URL
+    ]
+    assert request[3] == {"If-None-Match": '"v1"', "If-Modified-Since": modified}
+    assert parse.call_count == 1
+    assert _gtfs_path(hass).read_bytes() == archive
+    assert entry.state is ConfigEntryState.LOADED
+
+
+async def test_gtfs_download_after_broken_archive_not_conditional(
+    hass: HomeAssistant,
+    aioclient_mock: AiohttpClientMocker,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """An unreadable cached archive is downloaded whatever the server says."""
+    freezer.move_to(paris(8, 12))
+    _gtfs_path(hass).parent.mkdir(parents=True)
+    _gtfs_path(hass).write_bytes(b"broken")
+    _gtfs_path(hass).with_name("gtfs_validators.json").write_text(
+        '{"If-None-Match": "\\"v1\\""}'
+    )
+    _serve_feeds(aioclient_mock)
+    entry = _entry()
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    (request,) = [
+        call for call in aioclient_mock.mock_calls if str(call[1]) == DEFAULT_GTFS_URL
+    ]
+    assert not request[3]
+    assert entry.state is ConfigEntryState.LOADED
+
+
+async def test_new_line_reloads_entry(
+    hass: HomeAssistant,
+    mock_feeds: AiohttpClientMocker,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """A line added by the nightly archive gets its entities at once."""
+    await hass.config.async_set_time_zone("Europe/Paris")
+    freezer.move_to(paris(8, 12))
+    entry = _entry()
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    assert hass.states.get("sensor.tram_2_trams_in_service") is None
+
+    mock_feeds.clear_requests()
+    _serve_feeds(mock_feeds, gtfs=_gtfs_with_line_2())
+    freezer.move_to(paris(4, 31, day=24))
+    async_fire_time_changed(hass, fire_all=True)
+    await hass.async_block_till_done(wait_background_tasks=True)
+    assert entry.state is ConfigEntryState.LOADED
+    assert hass.states.get("sensor.tram_2_trams_in_service") is not None
+
+
+async def test_stale_line_device_removed(
+    hass: HomeAssistant,
+    mock_feeds: AiohttpClientMocker,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """The device of a line gone from the timetables is removed, not stops."""
+    freezer.move_to(paris(8, 12))
+    entry = _entry()
+    entry.add_to_hass(hass)
+    registry = dr.async_get(hass)
+    gone = registry.async_get_or_create(
+        config_entry_id=entry.entry_id, identifiers={(DOMAIN, "line_7")}
+    )
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    assert registry.async_get(gone.id) is None
+    assert registry.async_get_device({(DOMAIN, "line_1")}) is not None
+    assert registry.async_get_device({(DOMAIN, "B_1_0")}) is not None
 
 
 async def test_disruption_sensor(
