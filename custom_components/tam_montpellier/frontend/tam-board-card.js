@@ -29,7 +29,7 @@ const TEXTS = {
     min: "min",
     chooseStop: "Choisissez un arrêt (device) ou un capteur (entity)",
     cannotShow: "Affichage impossible",
-    stop: "Arrêt",
+    stops: "Arrêts",
     name: "Nom affiché (facultatif)",
     direction: "Direction affichée (facultatif)",
     vehicleSize: "Longueur de rame",
@@ -57,7 +57,7 @@ const TEXTS = {
     min: "min",
     chooseStop: "Choose a stop (device) or a sensor (entity)",
     cannotShow: "Cannot display",
-    stop: "Stop",
+    stops: "Stops",
     name: "Displayed name (optional)",
     direction: "Displayed direction (optional)",
     vehicleSize: "Tram length",
@@ -79,6 +79,8 @@ function texts(hass) {
 const STYLES = `
 :host { display: block; }
 ha-card { overflow: hidden; }
+.board { cursor: pointer; }
+.board + .board { border-top: 1px solid var(--divider-color); }
 .tam { text-align: left; color: var(--primary-text-color); font-family: var(--ha-font-family-body, inherit); }
 .band { position: relative; overflow: hidden; display: flex; align-items: center; gap: 12px; padding: 14px 16px; background: var(--line); color: var(--ink); }
 .motif { position: absolute; right: -6px; top: 0; height: 100%; opacity: .22; pointer-events: none; }
@@ -454,9 +456,44 @@ function render(entity, states, hass, variables, alertEntity, fleetEntity) {
 
 }
 
+/** Stop devices shown by a card: "devices", or the single "device" or "entity". */
+function configDevices(config, hass) {
+  if (Array.isArray(config.devices) && config.devices.length) return config.devices;
+  return [config.device || hass.entities?.[config.entity]?.device_id];
+}
+
+/**
+ * Entities of each stop shown by a card. The explicit "entity" and
+ * "alert_entity" of a single-stop card take precedence over those found.
+ */
+function stopBlocks(hass, config) {
+  const devices = configDevices(config, hass);
+  const single = devices.length === 1;
+  return devices.map((deviceId) => {
+    const found = stopEntities(hass, deviceId);
+    const minutes = (single && config.entity) || found.minutes;
+    const alert = (single && config.alert_entity) || found.alert;
+    const entity = minutes ? hass.states[minutes] : undefined;
+    const fleet = entity ? found.fleet[String(entity.attributes.line)] : undefined;
+    return { minutes, alert, fleet, entity };
+  });
+}
+
+/** HTML of a card: one board per stop, the overrides only for a single one. */
+function renderCard(blocks, hass, config) {
+  const single = blocks.length === 1;
+  const variables = {
+    stop_name: single ? config.name : undefined,
+    direction: single ? config.direction : undefined,
+    vehicle_size: config.vehicle_size,
+  };
+  return blocks.map((block) => `<div class="board" data-entity="${esc(block.minutes || '')}">${
+    render(block.entity, hass.states, hass, variables, block.alert, block.fleet)}</div>`).join("");
+}
+
 class TamBoardCard extends HTMLElement {
   setConfig(config) {
-    if (!config.device && !config.entity) {
+    if (!config.device && !config.entity && !(Array.isArray(config.devices) && config.devices.length)) {
       throw new Error(texts(this._hass).chooseStop);
     }
     this._config = config;
@@ -467,21 +504,19 @@ class TamBoardCard extends HTMLElement {
     this._hass = hass;
     if (!this._config) return;
     try {
-      let minutes = this._config.entity;
-      let alert = this._config.alert_entity;
-      const deviceId = this._config.device || hass.entities?.[minutes]?.device_id;
-      const found = stopEntities(hass, deviceId);
-      minutes = minutes || found.minutes;
-      alert = alert || found.alert;
-      const entity = minutes ? hass.states[minutes] : undefined;
-      const fleet = entity ? found.fleet[String(entity.attributes.line)] : undefined;
-      const alertState = alert ? hass.states[alert] : undefined;
-      const fleetState = fleet ? hass.states[fleet] : undefined;
-      const signature = [entity?.last_updated, alertState?.last_updated, fleetState?.state, hass.themes?.darkMode].join("|");
+      const blocks = stopBlocks(hass, this._config);
+      const signature = [
+        ...blocks.flatMap((block) => [
+          block.entity?.last_updated,
+          block.alert ? hass.states[block.alert]?.last_updated : undefined,
+          block.fleet ? hass.states[block.fleet]?.state : undefined,
+        ]),
+        hass.themes?.darkMode,
+      ].join("|");
       if (signature === this._signature) return;
       this._signature = signature;
-      this._minutes = minutes;
-      this._render(entity, alert, fleet);
+      this._blocks = blocks.length;
+      this._card().innerHTML = renderCard(blocks, hass, this._config);
     } catch (err) {
       // Thrown from here, Home Assistant would swap the card for "Erreur de
       // configuration" for good: show the error and retry at the next update.
@@ -496,22 +531,19 @@ class TamBoardCard extends HTMLElement {
     if (!this.shadowRoot) {
       this.attachShadow({ mode: "open" });
       this.shadowRoot.innerHTML = `<style>${STYLES}</style><ha-card></ha-card>`;
-      this.shadowRoot.querySelector("ha-card").addEventListener("click", () => {
-        if (!this._minutes) return;
+      // A click on a board opens the details of its stop.
+      this.shadowRoot.querySelector("ha-card").addEventListener("click", (ev) => {
+        const entityId = ev.target.closest?.(".board")?.dataset.entity;
+        if (!entityId) return;
         this.dispatchEvent(new CustomEvent("hass-more-info", {
-          bubbles: true, composed: true, detail: { entityId: this._minutes },
+          bubbles: true, composed: true, detail: { entityId },
         }));
       });
     }
     return this.shadowRoot.querySelector("ha-card");
   }
 
-  _render(entity, alert, fleet) {
-    const variables = { stop_name: this._config.name, direction: this._config.direction, vehicle_size: this._config.vehicle_size };
-    this._card().innerHTML = render(entity, this._hass.states, this._hass, variables, alert, fleet);
-  }
-
-  getCardSize() { return 4; }
+  getCardSize() { return 4 * (this._blocks || 1); }
 
   getGridOptions() { return { columns: 12, rows: "auto", min_columns: 6 }; }
 
@@ -540,26 +572,27 @@ class TamBoardCardEditor extends HTMLElement {
       this._form = document.createElement("ha-form");
       this._form.computeLabel = (schema) => {
         const t = texts(this._hass);
-        return { device: t.stop, name: t.name, direction: t.direction, vehicle_size: t.vehicleSize }[schema.name];
+        return { devices: t.stops, name: t.name, direction: t.direction, vehicle_size: t.vehicleSize }[schema.name];
       };
       this._form.addEventListener("value-changed", (ev) => {
-        const config = { ...this._config, ...ev.detail.value };
-        for (const key of ["name", "direction"]) if (!config[key]) delete config[key];
-        if (config.vehicle_size === "auto") delete config.vehicle_size;
         this.dispatchEvent(new CustomEvent("config-changed", {
-          bubbles: true, composed: true, detail: { config },
+          bubbles: true, composed: true, detail: { config: editedConfig(this._config, ev.detail.value) },
         }));
       });
       this.appendChild(this._form);
     }
-    this._form.hass = this._hass;
-    this._form.data = { vehicle_size: "auto", ...this._config };
     const t = texts(this._hass);
+    const devices = configDevices(this._config, this._hass).filter(Boolean);
+    this._form.hass = this._hass;
+    this._form.data = { vehicle_size: "auto", ...this._config, devices };
     this._form.schema = [
       // Stops have a disruption binary sensor, lines do not.
-      { name: "device", required: true, selector: { device: { integration: DOMAIN, entity: { domain: "binary_sensor" } } } },
-      { name: "name", selector: { text: {} } },
-      { name: "direction", selector: { text: {} } },
+      { name: "devices", required: true, selector: { device: { multiple: true, integration: DOMAIN, entity: { domain: "binary_sensor" } } } },
+      // The displayed name and direction only make sense for a single stop.
+      ...(devices.length > 1 ? [] : [
+        { name: "name", selector: { text: {} } },
+        { name: "direction", selector: { text: {} } },
+      ]),
       { name: "vehicle_size", selector: { select: { mode: "dropdown", options: [
         { value: "auto", label: t.sizeAuto },
         { value: "always", label: t.sizeAlways },
@@ -567,6 +600,29 @@ class TamBoardCardEditor extends HTMLElement {
       ] } } },
     ];
   }
+}
+
+/**
+ * Card configuration after an edit: a single stop is kept as "device", as
+ * before several stops could be shown, so that older versions still read it.
+ */
+function editedConfig(config, value) {
+  const edited = { ...config, ...value };
+  const devices = (edited.devices || []).filter(Boolean);
+  delete edited.devices;
+  delete edited.device;
+  if (devices.length > 1) {
+    edited.devices = devices;
+    delete edited.name;
+    delete edited.direction;
+    delete edited.entity;
+    delete edited.alert_entity;
+  } else {
+    edited.device = devices[0] || "";
+  }
+  for (const key of ["name", "direction"]) if (!edited[key]) delete edited[key];
+  if (edited.vehicle_size === "auto") delete edited.vehicle_size;
+  return edited;
 }
 
 /**
