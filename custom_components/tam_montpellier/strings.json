@@ -296,6 +296,12 @@
           },
           "vehicle_confirmed": {
             "name": "Confirmed"
+          },
+          "stop_name": {
+            "name": "Stop"
+          },
+          "direction": {
+            "name": "Direction"
           }
         }
       },

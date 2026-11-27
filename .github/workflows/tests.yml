@@ -22,3 +22,5 @@ jobs:
         run: ruff check . && ruff format --check .
       - name: Run tests
         run: python -m pytest -q
+      - name: Run the card tests
+        run: node --test tests/frontend/*.test.mjs

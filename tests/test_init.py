@@ -296,6 +296,29 @@ async def test_sensors(
     assert hass.states.get(NEXT_SENSOR).state == "2026-09-23T06:23:00+00:00"
 
 
+async def test_card_attributes_survive_renaming(
+    hass: HomeAssistant,
+    mock_feeds: AiohttpClientMocker,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """The stop and direction read by the card do not follow the device name."""
+    freezer.move_to(paris(8, 12))
+    entry = _entry()
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    device = dr.async_get(hass).async_get_device({(DOMAIN, "B_1_0")})
+    dr.async_get(hass).async_update_device(device.id, name_by_user="Maison")
+    assert await hass.config_entries.async_reload(entry.entry_id)
+    await hass.async_block_till_done()
+    attributes = hass.states.get(MINUTES_SENSOR).attributes
+    assert attributes["stop_name"] == "Bravo"
+    assert attributes["direction"] == "Delta"
+    entity = er.async_get(hass).async_get(MINUTES_SENSOR)
+    assert entity.translation_key == "minutes_to_next_departure"
+
+
 async def test_scheduled_departures_logged(
     hass: HomeAssistant,
     mock_feeds: AiohttpClientMocker,

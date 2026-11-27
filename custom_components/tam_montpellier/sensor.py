@@ -181,7 +181,9 @@ class TamDepartureSensor(TamStopEntity, SensorEntity):
     """A departure at a stop, for a line and direction."""
 
     entity_description: TamSensorEntityDescription
-    _unrecorded_attributes = frozenset({"departures", "line_color", "line_text_color"})
+    _unrecorded_attributes = frozenset(
+        {"departures", "line_color", "line_text_color", "stop_name", "direction"}
+    )
 
     def __init__(
         self,
@@ -275,6 +277,9 @@ class TamDepartureSensor(TamStopEntity, SensorEntity):
         if self._clockwise is not None:
             attributes["clockwise"] = self._clockwise
         if self.entity_description.minute_precision:
+            # Read by the card, whatever the names given to the device.
+            attributes["stop_name"] = self._stop_name
+            attributes["direction"] = self._direction
             # Kept up to date at each minute boundary, see _schedule_refresh.
             attributes["departures"] = [
                 {

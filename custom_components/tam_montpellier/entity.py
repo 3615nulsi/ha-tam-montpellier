@@ -34,6 +34,8 @@ class TamStopEntity(CoordinatorEntity[TamCoordinator]):
         self._route = coordinator.static.routes.get(route_id)
         self._line = coordinator.static.line_name(route_id, direction_id)
         self._clockwise = coordinator.static.clockwise.get((route_id, direction_id))
+        self._stop_name = coordinator.static.stop_names.get(stop_id, stop_id)
+        self._direction = coordinator.static.direction_label(route_id, direction_id)
         self._attr_unique_id = f"{stop_id}_{route_id}_{direction_id}_{description.key}"
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, f"{stop_id}_{route_id}_{direction_id}")},
