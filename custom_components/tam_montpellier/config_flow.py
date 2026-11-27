@@ -55,6 +55,7 @@ from .const import (
 from .coordinator import TamConfigEntry, async_fetch_feed, stop_key_from_data
 from .departures import parse_trip_updates
 from .gtfs_static import StaticData
+from .labels import Labels, async_get_labels, line_kind, rotation
 
 _URL_SELECTOR = TextSelector(TextSelectorConfig(type=TextSelectorType.URL))
 
@@ -116,7 +117,7 @@ async def _async_check_gtfs(hass: HomeAssistant, url: str) -> str | None:
 
 
 # Walk to the stop and "time to leave" window, in minutes.
-_LEAVE_FIELDS = {
+_LEAVE_FIELDS: dict[vol.Marker, NumberSelector] = {
     vol.Optional(CONF_WALK_MINUTES): NumberSelector(
         NumberSelectorConfig(
             min=0,
@@ -158,15 +159,9 @@ async def _async_check_urls(hass: HomeAssistant, urls: Mapping[str, str]) -> str
     return await _async_check_gtfs(hass, urls[CONF_GTFS_URL])
 
 
-def _rotation(static: StaticData, route_id: str, direction_id: int) -> str | None:
-    """Return the way a circular line runs, None for other lines."""
-    clockwise = static.clockwise.get((route_id, direction_id))
-    if clockwise is None:
-        return None
-    return "sens horaire" if clockwise else "sens antihoraire"
-
-
-def _direction_option(static: StaticData, route_id: str, direction_id: int) -> str:
+def _direction_option(
+    labels: Labels, static: StaticData, route_id: str, direction_id: int
+) -> str:
     """Label a direction: its destination, or its way round for a circular line.
 
     Both directions of a circular line start and end at the same stop, so
@@ -175,9 +170,10 @@ def _direction_option(static: StaticData, route_id: str, direction_id: int) -> s
     """
     stops = static.line_stops[(route_id, direction_id)]
     names = [static.stop_names.get(stop_id, stop_id) for stop_id in stops]
-    if (rotation := _rotation(static, route_id, direction_id)) is None:
-        label = static.direction_label(route_id, direction_id)
-        return f"Vers {label} (depuis {names[0]})"
+    if (way := rotation(labels, static, route_id, direction_id)) is None:
+        return labels["towards"].format(
+            direction=static.direction_label(route_id, direction_id), origin=names[0]
+        )
     # Three stops spread along the loop, the same ones in both directions,
     # without their second name.
     last = len(names) - 1
@@ -185,7 +181,7 @@ def _direction_option(static: StaticData, route_id: str, direction_id: int) -> s
         names[index].split(" - ")[0]
         for index in (last // 4, last // 2, last - last // 4)
     )
-    return f"{static.line_name(route_id, direction_id)} · {rotation} ({via})"
+    return f"{static.line_name(route_id, direction_id)} · {way} ({via})"
 
 
 class TamConfigFlow(ConfigFlow, domain=DOMAIN):
@@ -351,6 +347,7 @@ class StopSubentryFlowHandler(ConfigSubentryFlow):
 
     _route_id: str
     _direction_id: int
+    _labels: Labels
 
     @property
     def _static(self) -> StaticData:
@@ -364,10 +361,12 @@ class StopSubentryFlowHandler(ConfigSubentryFlow):
         if self._get_entry().state is not ConfigEntryState.LOADED:
             return self.async_abort(reason="entry_not_loaded")
         static = self._static
+        self._labels = await async_get_labels(self.hass)
         if user_input is not None:
             self._route_id = user_input[CONF_ROUTE_ID]
             return await self.async_step_direction()
 
+        labels = self._labels
         routes = sorted(
             static.routes.values(),
             key=lambda route: (
@@ -386,8 +385,8 @@ class StopSubentryFlowHandler(ConfigSubentryFlow):
                                 SelectOptionDict(
                                     value=route.route_id,
                                     label=(
-                                        f"{route.kind} {route.short_name}"
-                                        f" · {route.long_name}"
+                                        f"{line_kind(labels, static, route.route_id)}"
+                                        f" {route.short_name} · {route.long_name}"
                                     ),
                                 )
                                 for route in routes
@@ -415,7 +414,9 @@ class StopSubentryFlowHandler(ConfigSubentryFlow):
             options.append(
                 SelectOptionDict(
                     value=str(direction_id),
-                    label=_direction_option(static, route_id, direction_id),
+                    label=_direction_option(
+                        self._labels, static, route_id, direction_id
+                    ),
                 )
             )
         return self.async_show_form(
@@ -452,7 +453,7 @@ class StopSubentryFlowHandler(ConfigSubentryFlow):
                 for subentry in self._get_entry().subentries.values()
             ):
                 return self.async_abort(reason="already_configured")
-            kind = static.line_kind(self._route_id)
+            kind = line_kind(self._labels, static, self._route_id)
             name = static.line_name(self._route_id, self._direction_id)
             line = f"{kind} {name}"
             if (self._route_id, self._direction_id) in static.clockwise:
@@ -473,25 +474,24 @@ class StopSubentryFlowHandler(ConfigSubentryFlow):
             )
 
         offered = static.offered_stops(self._route_id, self._direction_id)
+        fields: dict[vol.Marker, Any] = {
+            vol.Required(CONF_STOP_ID): SelectSelector(
+                SelectSelectorConfig(
+                    options=[
+                        SelectOptionDict(value=stop_id, label=name)
+                        for name, stop_id in offered.items()
+                    ],
+                    mode=SelectSelectorMode.DROPDOWN,
+                )
+            ),
+            **_LEAVE_FIELDS,
+        }
         return self.async_show_form(
             step_id="stop",
-            data_schema=vol.Schema(
-                {
-                    vol.Required(CONF_STOP_ID): SelectSelector(
-                        SelectSelectorConfig(
-                            options=[
-                                SelectOptionDict(value=stop_id, label=name)
-                                for name, stop_id in offered.items()
-                            ],
-                            mode=SelectSelectorMode.DROPDOWN,
-                        )
-                    ),
-                    **_LEAVE_FIELDS,
-                }
-            ),
+            data_schema=vol.Schema(fields),
             description_placeholders={
                 "line": (
-                    f"{static.line_kind(self._route_id)} "
+                    f"{line_kind(self._labels, static, self._route_id)} "
                     f"{static.line_name(self._route_id, self._direction_id)}"
                 ),
                 "direction": self._direction_name,
@@ -533,12 +533,12 @@ class StopSubentryFlowHandler(ConfigSubentryFlow):
         """Destination of the direction, with its way round on a circular line."""
         static = self._static
         label = static.direction_label(self._route_id, self._direction_id)
-        if rotation := _rotation(static, self._route_id, self._direction_id):
-            return f"{label} ({rotation})"
+        if way := rotation(self._labels, static, self._route_id, self._direction_id):
+            return f"{label} ({way})"
         return label
 
     @property
     def _line_name(self) -> str:
         route = self._static.routes.get(self._route_id)
-        kind = self._static.line_kind(self._route_id)
+        kind = line_kind(self._labels, self._static, self._route_id)
         return f"{kind} {route.short_name if route else self._route_id}"

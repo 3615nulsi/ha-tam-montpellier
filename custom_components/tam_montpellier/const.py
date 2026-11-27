@@ -54,7 +54,8 @@ GTFS_DOWNLOAD_TIMEOUT: Final = 180
 # The GTFS archive is regenerated daily by the operator.
 GTFS_MAX_AGE: Final = timedelta(hours=20)
 # The archive is downloaded again each night, at a time between 3:30 and
-# 4:30 that depends on the installation.
+# 4:30 that depends on the installation. TaM publishes it shortly before,
+# around 3:20 (Last-Modified of 27 November 2026: 02:18 GMT).
 GTFS_REFRESH_HOUR: Final = 3
 GTFS_REFRESH_MINUTE: Final = 30
 GTFS_REFRESH_SPREAD: Final = timedelta(hours=1)

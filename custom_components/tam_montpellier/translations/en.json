@@ -566,5 +566,17 @@
         }
       }
     }
+  },
+  "selector": {
+    "labels": {
+      "options": {
+        "towards": "To {direction} (from {origin})",
+        "clockwise": "clockwise",
+        "anticlockwise": "anticlockwise",
+        "tram_line": "Tram line",
+        "tram": "Tram",
+        "bus": "Bus"
+      }
+    }
   }
 }

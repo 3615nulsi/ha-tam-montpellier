@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Mapping
 import csv
 from datetime import datetime
 from http import HTTPStatus
 import json
 import logging
 from pathlib import Path
+from typing import Any
 import zipfile
 import zlib
 
@@ -58,6 +60,7 @@ from .fleet import (
     trip_vehicles,
 )
 from .gtfs_static import StaticData, StopKey, load_static
+from .labels import DEFAULT_LABELS, Labels
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -85,7 +88,7 @@ GTFS_ERRORS = (
 )
 
 
-def stop_key_from_data(data: dict) -> StopKey:
+def stop_key_from_data(data: Mapping[str, Any]) -> StopKey:
     """Build the stop key of a stop subentry."""
     return (data[CONF_STOP_ID], data[CONF_ROUTE_ID], int(data[CONF_DIRECTION_ID]))
 
@@ -127,6 +130,8 @@ class TamCoordinator(DataUpdateCoordinator[dict[StopKey, list[Departure]]]):
         """Whether a feed naming the trams answered at the last update."""
         self.trip_vehicles: dict[str, str] = {}
         """Fleet number of the tram running each trip, at the last update."""
+        self.labels: Labels = dict(DEFAULT_LABELS)
+        """Texts built by the integration, in the language of Home Assistant."""
         self.snapshot = RealtimeSnapshot()
         """Real-time trips read at the last update."""
         self.feed_timestamp: datetime | None = None

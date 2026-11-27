@@ -41,6 +41,7 @@ from custom_components.tam_montpellier.const import (
     DOMAIN,
     SUBENTRY_TYPE_STOP,
 )
+from custom_components.tam_montpellier.coordinator import _read_validators
 from custom_components.tam_montpellier.gtfs_static import parse_static
 from homeassistant.config_entries import ConfigEntryState, ConfigSubentryData
 from homeassistant.core import HomeAssistant
@@ -55,6 +56,7 @@ from .conftest import (
     build_gtfs,
     build_trip_updates,
     build_vehicle_positions,
+    find_device,
     paris,
     trip_id,
 )
@@ -323,7 +325,7 @@ async def test_card_attributes_survive_renaming(
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
 
-    device = dr.async_get(hass).async_get_device({(DOMAIN, "B_1_0")})
+    device = find_device(hass, "B_1_0")
     dr.async_get(hass).async_update_device(device.id, name_by_user="Maison")
     assert await hass.config_entries.async_reload(entry.entry_id)
     await hass.async_block_till_done()
@@ -451,6 +453,31 @@ async def test_first_and_last_departures(
     assert hass.states.get(last).state == "2026-09-23T22:33:00+00:00"
 
 
+async def test_labels_in_french(
+    hass: HomeAssistant,
+    mock_feeds: AiohttpClientMocker,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """The texts built by the integration follow the language of Home Assistant."""
+    hass.config.language = "fr"
+    freezer.move_to(paris(8, 12))
+    entry = _entry()
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    assert find_device(hass, "line_1").model == "Ligne de tramway"
+    assert find_device(hass, "B_1_0").model == "Tram 1"
+
+    result = await hass.config_entries.subentries.async_init(
+        (entry.entry_id, SUBENTRY_TYPE_STOP), context={"source": "user"}
+    )
+    result = await hass.config_entries.subentries.async_configure(
+        result["flow_id"], {CONF_ROUTE_ID: "1"}
+    )
+    options = result["data_schema"].schema[CONF_DIRECTION_ID].config["options"]
+    assert options[0] == {"value": "0", "label": "Vers Delta (depuis Alpha)"}
+
+
 async def test_scheduled_departures_logged(
     hass: HomeAssistant,
     mock_feeds: AiohttpClientMocker,
@@ -530,6 +557,58 @@ async def test_realtime_outage_falls_back_to_schedule(
     assert hass.states.get(VEHICLES_SENSOR).state == "unavailable"
 
 
+async def test_optional_feed_outages(
+    hass: HomeAssistant,
+    aioclient_mock: AiohttpClientMocker,
+    freezer: FrozenDateTimeFactory,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Alert and position feed outages are logged once, and their recovery."""
+    freezer.move_to(paris(8, 12))
+    aioclient_mock.get(DEFAULT_ALERTS_URL, exc=ClientError())
+    aioclient_mock.get(DEFAULT_VEHICLE_POSITIONS_URL, exc=ClientError())
+    _serve_feeds(aioclient_mock)
+    entry = _entry()
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    await entry.runtime_data.async_refresh()
+    assert caplog.text.count("TaM alert feed unavailable") == 1
+    assert caplog.text.count("TaM vehicle position feed unavailable") == 1
+    assert entry.runtime_data.feeds_available == {
+        "trip_updates": True,
+        "alerts": False,
+        "vehicle_positions": False,
+    }
+
+    aioclient_mock.clear_requests()
+    _serve_feeds(aioclient_mock)
+    await entry.runtime_data.async_refresh()
+    assert "TaM alert feed is available again" in caplog.text
+    assert "TaM vehicle position feed is available again" in caplog.text
+    assert all(entry.runtime_data.feeds_available.values())
+
+
+@pytest.mark.parametrize(
+    ("content", "expected"),
+    [
+        (None, {}),
+        (b"not json", {}),
+        (b"[1, 2]", {}),
+        (
+            b'{"If-None-Match": "\\"v1\\"", "If-Modified-Since": 3, "Other": "x"}',
+            {"If-None-Match": '"v1"'},
+        ),
+    ],
+)
+def test_read_validators(tmp_path: Path, content: bytes | None, expected: dict) -> None:
+    """Missing, broken or unexpected validators are ignored."""
+    path = tmp_path / "gtfs_validators.json"
+    if content is not None:
+        path.write_bytes(content)
+    assert _read_validators(path) == expected
+
+
 async def test_gtfs_unavailable(
     hass: HomeAssistant, aioclient_mock: AiohttpClientMocker
 ) -> None:
@@ -565,7 +644,8 @@ async def test_stop_subentry_flow(
     )
     assert result["step_id"] == "direction"
     options = result["data_schema"].schema[CONF_DIRECTION_ID].config["options"]
-    assert options[0] == {"value": "0", "label": "Vers Delta (depuis Alpha)"}
+    # Built from the translations, in the language of Home Assistant.
+    assert options[0] == {"value": "0", "label": "To Delta (from Alpha)"}
 
     result = await hass.config_entries.subentries.async_configure(
         result["flow_id"], {CONF_DIRECTION_ID: "0"}
@@ -654,7 +734,7 @@ async def test_bus_lines_option(
         "sensor.bus_stop_bus_terminus_bus_10_minutes_to_next_departure"
     )
     assert minutes.state == "5"
-    device = dr.async_get(hass).async_get_device({(DOMAIN, "X_10_0")})
+    device = find_device(hass, "X_10_0")
     assert device.model == "Bus 10"
     # Only the trams are counted.
     assert not [
@@ -980,8 +1060,8 @@ async def test_stale_line_device_removed(
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
     assert registry.async_get(gone.id) is None
-    assert registry.async_get_device({(DOMAIN, "line_1")}) is not None
-    assert registry.async_get_device({(DOMAIN, "B_1_0")}) is not None
+    assert find_device(hass, "line_1") is not None
+    assert find_device(hass, "B_1_0") is not None
 
 
 async def test_disruption_sensor(
@@ -1122,7 +1202,7 @@ async def test_vehicles_sensor(
     assert state.attributes["line"] == "1"
     assert state.attributes["running"] == 3
     assert state.attributes["vehicles"] == ["2004", "2007", "2020"]
-    device = device_registry.async_get_device(identifiers={(DOMAIN, "line_1")})
+    device = find_device(hass, "line_1")
     assert device is not None
     assert device.name == "Tram 1"
 

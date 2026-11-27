@@ -11,10 +11,9 @@ from pytest_homeassistant_custom_component.test_util.aiohttp import (
 from custom_components.tam_montpellier.const import DOMAIN
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ServiceValidationError
-from homeassistant.helpers import device_registry as dr
 from homeassistant.setup import async_setup_component
 
-from .conftest import paris
+from .conftest import find_device, paris
 from .test_init import MINUTES_SENSOR, _entry, mock_feeds_fixture  # noqa: F401
 
 pytestmark = pytest.mark.usefixtures("enable_custom_integrations", "isolated_storage")
@@ -41,7 +40,7 @@ async def test_get_departures_by_device(
     """The departures of a stop device are those of its minutes sensor."""
     freezer.move_to(paris(8, 12))
     await _set_up(hass)
-    device = dr.async_get(hass).async_get_device({(DOMAIN, "B_1_0")})
+    device = find_device(hass, "B_1_0")
 
     response = await _call(hass, device_id=device.id)
     expected = hass.states.get(MINUTES_SENSOR).attributes["departures"]

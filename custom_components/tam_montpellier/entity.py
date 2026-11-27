@@ -21,6 +21,7 @@ from .const import (
 from .coordinator import TamCoordinator, stop_key_from_data
 from .departures import Departure
 from .fleet import FleetLine, fleet_line_name
+from .labels import line_kind
 from .leave import leave_departures
 
 
@@ -57,7 +58,10 @@ class TamStopEntity(CoordinatorEntity[TamCoordinator]):
             identifiers={(DOMAIN, f"{stop_id}_{route_id}_{direction_id}")},
             name=subentry.title,
             manufacturer="TaM",
-            model=f"{coordinator.static.line_kind(route_id)} {self._line}",
+            model=(
+                f"{line_kind(coordinator.labels, coordinator.static, route_id)}"
+                f" {self._line}"
+            ),
             entry_type=DeviceEntryType.SERVICE,
         )
 
@@ -113,6 +117,6 @@ class TamLineEntity(CoordinatorEntity[TamCoordinator]):
             identifiers={(DOMAIN, line_id)},
             name=f"Tram {self._line}",
             manufacturer="TaM",
-            model="Ligne de tramway",
+            model=coordinator.labels["tram_line"],
             entry_type=DeviceEntryType.SERVICE,
         )

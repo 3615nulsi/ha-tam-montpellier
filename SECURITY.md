@@ -28,6 +28,10 @@ This is a hobby project maintained on free time; thank you for your patience.
 ## Scope
 
 This integration only reads public TaM open data feeds (GTFS / GTFS-RT) and
-serves a Lovelace card from your Home Assistant instance. Issues in Home
+serves a Lovelace card from your Home Assistant instance. To start quickly, it
+keeps the parsed timetables in a Python pickle file,
+`.storage/tam_montpellier/gtfs_static.pickle`, written and read by the
+integration only: anyone able to write there could run code in Home
+Assistant, as with the rest of its configuration folder. Issues in Home
 Assistant itself, HACS or the TaM feeds should be reported to their
 respective projects.
