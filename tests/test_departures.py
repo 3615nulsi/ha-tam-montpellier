@@ -26,6 +26,7 @@ from custom_components.tam_montpellier.gtfs_static import (
 from custom_components.tam_montpellier.sensor import (
     minutes_until,
     next_minute_change,
+    rounded_time,
 )
 
 from .conftest import PARIS, build_trip_updates, paris, trip_id
@@ -439,3 +440,28 @@ def test_scheduled_departure_in_repeated_hour(static: StaticData) -> None:
     now = datetime(2026, 10, 25, 1, 55, tzinfo=PARIS)
     departures = _departures(night, None, now)
     assert [dep.time.timestamp() for dep in departures] == [_utc(2026, 10, 25, 0, 50)]
+
+
+@pytest.mark.parametrize(
+    ("time", "expected"),
+    [
+        (paris(8, 14, 30), paris(8, 14, 30)),
+        (paris(8, 14, 37), paris(8, 14, 30)),
+        (paris(8, 14, 44), paris(8, 14, 30)),
+        (paris(8, 14, 45), paris(8, 14, 45)),
+        (paris(8, 14, 59), paris(8, 14, 45)),
+    ],
+)
+def test_time_state_rounded(time: datetime, expected: datetime) -> None:
+    """Times are given by steps of 15 seconds, rounded down."""
+    departure = Departure(
+        time=time,
+        route_id="1",
+        headsign="Delta",
+        source=DepartureSource.REALTIME,
+        delay=None,
+        trip_id="t",
+    )
+    assert rounded_time(departure, paris(8, 0)) == expected
+    # The minutes keep the exact time.
+    assert minutes_until(departure, time - timedelta(minutes=2)) == 2

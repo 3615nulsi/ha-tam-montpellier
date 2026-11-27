@@ -7,10 +7,13 @@ minutes before the tram: someone leaving when the sensor says they have time
 arrives early rather than late. The minutes sensor is rewritten at the exact
 instant its value changes instead of waiting for the next poll.
 
-The timestamp sensors keep the exact predicted time. Note that the Home
-Assistant frontend displays them as "in X minutes" rounded to the nearest
-minute and refreshed once a minute, which may overestimate the remaining time
-by up to 1.5 minutes; the minutes sensor is the one to display.
+The timestamp sensors give the predicted time rounded down to 15 seconds:
+the operator's prediction moves by a few seconds from one poll to the next,
+and each move would otherwise be a new state recorded in the database. The
+minutes and the ``departures`` attribute keep the exact time. Note that the
+Home Assistant frontend displays timestamps as "in X minutes" rounded to the
+nearest minute and refreshed once a minute, which may overestimate the
+remaining time by up to 1.5 minutes; the minutes sensor is the one to display.
 """
 
 from __future__ import annotations
@@ -45,6 +48,8 @@ PARALLEL_UPDATES = 0
 
 # Refresh slightly after a boundary so the new value is already reached.
 _BOUNDARY_EPSILON = timedelta(milliseconds=50)
+# Step of the times given by the timestamp sensors.
+TIME_STATE_STEP = timedelta(seconds=15)
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -86,20 +91,31 @@ def next_minute_change(departure: Departure, now: datetime) -> datetime:
     return max(change, now_utc + _BOUNDARY_EPSILON)
 
 
+def rounded_time(departure: Departure, _now: datetime) -> datetime:
+    """Return the departure time rounded down to ``TIME_STATE_STEP``.
+
+    Down rather than to the nearest: as with the minutes, the tram is not
+    announced later than predicted.
+    """
+    timestamp = departure.time.timestamp()
+    step = TIME_STATE_STEP.total_seconds()
+    return datetime.fromtimestamp(timestamp - timestamp % step, departure.time.tzinfo)
+
+
 SENSOR_DESCRIPTIONS: tuple[TamSensorEntityDescription, ...] = (
     TamSensorEntityDescription(
         key="next_departure",
         translation_key="next_departure",
         device_class=SensorDeviceClass.TIMESTAMP,
         index=0,
-        value_fn=lambda departure, _now: departure.time,
+        value_fn=rounded_time,
     ),
     TamSensorEntityDescription(
         key="following_departure",
         translation_key="following_departure",
         device_class=SensorDeviceClass.TIMESTAMP,
         index=1,
-        value_fn=lambda departure, _now: departure.time,
+        value_fn=rounded_time,
     ),
     TamSensorEntityDescription(
         key="next_destination",
