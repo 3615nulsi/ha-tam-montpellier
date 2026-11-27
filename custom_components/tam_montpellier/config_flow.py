@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
+from collections.abc import Mapping
 from typing import Any
 
-from aiohttp import ClientError
+from aiohttp import ClientError, ClientTimeout
 from google.protobuf.message import DecodeError
 import voluptuous as vol
 
@@ -17,7 +19,9 @@ from homeassistant.config_entries import (
     OptionsFlow,
     SubentryFlowResult,
 )
-from homeassistant.core import callback
+from homeassistant.core import HomeAssistant, callback
+from homeassistant.data_entry_flow import section
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.selector import (
     BooleanSelector,
     SelectOptionDict,
@@ -44,6 +48,7 @@ from .const import (
     DEFAULT_TRIP_UPDATES_URL,
     DEFAULT_VEHICLE_POSITIONS_URL,
     DOMAIN,
+    REQUEST_TIMEOUT,
     SUBENTRY_TYPE_STOP,
 )
 from .coordinator import TamConfigEntry, async_fetch_feed, stop_key_from_data
@@ -51,6 +56,79 @@ from .departures import parse_trip_updates
 from .gtfs_static import StaticData
 
 _URL_SELECTOR = TextSelector(TextSelectorConfig(type=TextSelectorType.URL))
+
+# The data source addresses, folded in a section: the defaults are right
+# unless the operator moves its feeds.
+SECTION_ADVANCED = "advanced"
+DEFAULT_URLS: dict[str, str] = {
+    CONF_TRIP_UPDATES_URL: DEFAULT_TRIP_UPDATES_URL,
+    CONF_GTFS_URL: DEFAULT_GTFS_URL,
+    CONF_ALERTS_URL: DEFAULT_ALERTS_URL,
+    CONF_VEHICLE_POSITIONS_URL: DEFAULT_VEHICLE_POSITIONS_URL,
+}
+# First bytes of a zip archive.
+_ZIP_SIGNATURE = b"PK\x03\x04"
+
+
+def _urls_schema(urls: Mapping[str, Any], collapsed: bool) -> vol.Schema:
+    """Return the form of the data source addresses, filled with ``urls``."""
+    return vol.Schema(
+        {
+            vol.Required(SECTION_ADVANCED): section(
+                vol.Schema(
+                    {
+                        vol.Required(key, default=urls.get(key, default)): (
+                            _URL_SELECTOR
+                        )
+                        for key, default in DEFAULT_URLS.items()
+                    }
+                ),
+                {"collapsed": collapsed},
+            )
+        }
+    )
+
+
+async def _async_check_trip_updates(hass: HomeAssistant, url: str) -> str | None:
+    """Return the error of the real-time feed, None when it is valid."""
+    try:
+        payload = await async_fetch_feed(hass, url)
+        await hass.async_add_executor_job(parse_trip_updates, payload)
+    except (ClientError, TimeoutError):
+        return "cannot_connect"
+    except DecodeError:
+        return "invalid_feed"
+    return None
+
+
+async def _async_check_gtfs(hass: HomeAssistant, url: str) -> str | None:
+    """Return the error of the timetable archive, None when it looks valid.
+
+    Only the first bytes are read: the archive weighs several megabytes.
+    """
+    session = async_get_clientsession(hass)
+    try:
+        async with session.get(
+            url, timeout=ClientTimeout(total=REQUEST_TIMEOUT)
+        ) as resp:
+            resp.raise_for_status()
+            start = await resp.content.readexactly(len(_ZIP_SIGNATURE))
+    except asyncio.IncompleteReadError:
+        return "invalid_gtfs"
+    except (ClientError, TimeoutError):
+        return "gtfs_cannot_connect"
+    return None if start == _ZIP_SIGNATURE else "invalid_gtfs"
+
+
+async def _async_check_urls(hass: HomeAssistant, urls: Mapping[str, str]) -> str | None:
+    """Return the error of the data sources, None when they can be used.
+
+    The service alerts and vehicle positions are optional: the departures
+    are shown without them.
+    """
+    if error := await _async_check_trip_updates(hass, urls[CONF_TRIP_UPDATES_URL]):
+        return error
+    return await _async_check_gtfs(hass, urls[CONF_GTFS_URL])
 
 
 def _rotation(static: StaticData, route_id: str, direction_id: int) -> str | None:
@@ -105,40 +183,42 @@ class TamConfigFlow(ConfigFlow, domain=DOMAIN):
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Confirm the data sources and check the real-time feed."""
+        """Confirm the data sources and check the real-time feed and timetables."""
         errors: dict[str, str] = {}
+        urls: Mapping[str, Any] = DEFAULT_URLS
         if user_input is not None:
-            try:
-                payload = await async_fetch_feed(
-                    self.hass, user_input[CONF_TRIP_UPDATES_URL]
-                )
-                await self.hass.async_add_executor_job(parse_trip_updates, payload)
-            except (ClientError, TimeoutError):
-                errors["base"] = "cannot_connect"
-            except DecodeError:
-                errors["base"] = "invalid_feed"
+            urls = user_input[SECTION_ADVANCED]
+            if error := await _async_check_urls(self.hass, urls):
+                errors["base"] = error
             else:
-                return self.async_create_entry(title="TaM Montpellier", data=user_input)
+                return self.async_create_entry(title="TaM Montpellier", data=dict(urls))
 
         return self.async_show_form(
             step_id="user",
-            data_schema=self.add_suggested_values_to_schema(
-                vol.Schema(
-                    {
-                        vol.Required(CONF_TRIP_UPDATES_URL): _URL_SELECTOR,
-                        vol.Required(CONF_GTFS_URL): _URL_SELECTOR,
-                        vol.Required(CONF_ALERTS_URL): _URL_SELECTOR,
-                        vol.Required(CONF_VEHICLE_POSITIONS_URL): _URL_SELECTOR,
-                    }
-                ),
-                user_input
-                or {
-                    CONF_TRIP_UPDATES_URL: DEFAULT_TRIP_UPDATES_URL,
-                    CONF_GTFS_URL: DEFAULT_GTFS_URL,
-                    CONF_ALERTS_URL: DEFAULT_ALERTS_URL,
-                    CONF_VEHICLE_POSITIONS_URL: DEFAULT_VEHICLE_POSITIONS_URL,
-                },
-            ),
+            # Unfolded when an address is wrong, for the user to see it.
+            data_schema=_urls_schema(urls, collapsed=not errors),
+            errors=errors,
+        )
+
+    async def async_step_reconfigure(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Change the data source addresses, keeping the followed stops."""
+        entry = self._get_reconfigure_entry()
+        errors: dict[str, str] = {}
+        urls: Mapping[str, Any] = {**DEFAULT_URLS, **entry.data}
+        if user_input is not None:
+            urls = user_input[SECTION_ADVANCED]
+            if error := await _async_check_urls(self.hass, urls):
+                errors["base"] = error
+            else:
+                return self.async_update_reload_and_abort(
+                    entry, data_updates=dict(urls)
+                )
+
+        return self.async_show_form(
+            step_id="reconfigure",
+            data_schema=_urls_schema(urls, collapsed=False),
             errors=errors,
         )
 

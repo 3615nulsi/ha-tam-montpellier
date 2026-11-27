@@ -3,21 +3,45 @@
     "step": {
       "user": {
         "title": "TaM Montpellier",
-        "description": "Horaires en temps réel du tramway de Montpellier (open data TaM, licence ODbL). Les adresses par défaut conviennent ; elles ne sont à modifier que si l'opérateur les change.\n\nUne fois l'intégration ajoutée, utilisez « Ajouter un arrêt » pour choisir les arrêts à suivre.",
-        "data": {
-          "trip_updates_url": "Flux temps réel (GTFS-RT TripUpdate)",
-          "gtfs_url": "Horaires théoriques (GTFS)",
-          "alerts_url": "Alertes trafic (GTFS-RT Alert)",
-          "vehicle_positions_url": "Positions des rames (GTFS-RT VehiclePosition)"
+        "description": "Horaires en temps réel du tramway de Montpellier (open data TaM, licence ODbL).\n\nUne fois l'intégration ajoutée, utilisez « Ajouter un arrêt » pour choisir les arrêts à suivre.",
+        "sections": {
+          "advanced": {
+            "name": "Avancé : sources de données",
+            "description": "Les adresses par défaut conviennent ; elles ne sont à modifier que si l'opérateur les change.",
+            "data": {
+              "trip_updates_url": "Flux temps réel (GTFS-RT TripUpdate)",
+              "gtfs_url": "Horaires théoriques (GTFS)",
+              "alerts_url": "Alertes trafic (GTFS-RT Alert)",
+              "vehicle_positions_url": "Positions des rames (GTFS-RT VehiclePosition)"
+            }
+          }
+        }
+      },
+      "reconfigure": {
+        "title": "Sources de données TaM",
+        "description": "Modifiez les adresses des flux TaM. Les arrêts suivis sont conservés.",
+        "sections": {
+          "advanced": {
+            "name": "Sources de données",
+            "data": {
+              "trip_updates_url": "Flux temps réel (GTFS-RT TripUpdate)",
+              "gtfs_url": "Horaires théoriques (GTFS)",
+              "alerts_url": "Alertes trafic (GTFS-RT Alert)",
+              "vehicle_positions_url": "Positions des rames (GTFS-RT VehiclePosition)"
+            }
+          }
         }
       }
     },
     "error": {
       "cannot_connect": "Impossible de joindre le flux temps réel.",
-      "invalid_feed": "La réponse n'est pas un flux GTFS-RT valide."
+      "invalid_feed": "L'adresse du flux temps réel ne renvoie pas un flux GTFS-RT valide.",
+      "gtfs_cannot_connect": "Impossible de joindre les horaires théoriques (GTFS).",
+      "invalid_gtfs": "L'adresse des horaires théoriques ne renvoie pas une archive GTFS (zip)."
     },
     "abort": {
-      "single_instance_allowed": "L'intégration est déjà configurée. Ajoutez des arrêts depuis sa page."
+      "single_instance_allowed": "L'intégration est déjà configurée. Ajoutez des arrêts depuis sa page.",
+      "reconfigure_successful": "Les sources de données sont mises à jour."
     }
   },
   "config_subentries": {

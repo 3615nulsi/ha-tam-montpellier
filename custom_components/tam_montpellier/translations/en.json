@@ -3,21 +3,45 @@
     "step": {
       "user": {
         "title": "TaM Montpellier",
-        "description": "Real-time departures of the Montpellier tramway (TaM open data, ODbL licence). The default addresses are fine; only change them if the operator moves the feeds.\n\nOnce the integration is added, use \"Add stop\" to pick the stops to follow.",
-        "data": {
-          "trip_updates_url": "Real-time feed (GTFS-RT TripUpdate)",
-          "gtfs_url": "Timetables (GTFS)",
-          "alerts_url": "Service alerts (GTFS-RT Alert)",
-          "vehicle_positions_url": "Vehicle positions (GTFS-RT VehiclePosition)"
+        "description": "Real-time departures of the Montpellier tramway (TaM open data, ODbL licence).\n\nOnce the integration is added, use \"Add stop\" to pick the stops to follow.",
+        "sections": {
+          "advanced": {
+            "name": "Advanced: data sources",
+            "description": "The default addresses are fine; only change them if the operator moves the feeds.",
+            "data": {
+              "trip_updates_url": "Real-time feed (GTFS-RT TripUpdate)",
+              "gtfs_url": "Timetables (GTFS)",
+              "alerts_url": "Service alerts (GTFS-RT Alert)",
+              "vehicle_positions_url": "Vehicle positions (GTFS-RT VehiclePosition)"
+            }
+          }
+        }
+      },
+      "reconfigure": {
+        "title": "TaM data sources",
+        "description": "Change the addresses of the TaM feeds. The followed stops are kept.",
+        "sections": {
+          "advanced": {
+            "name": "Data sources",
+            "data": {
+              "trip_updates_url": "Real-time feed (GTFS-RT TripUpdate)",
+              "gtfs_url": "Timetables (GTFS)",
+              "alerts_url": "Service alerts (GTFS-RT Alert)",
+              "vehicle_positions_url": "Vehicle positions (GTFS-RT VehiclePosition)"
+            }
+          }
         }
       }
     },
     "error": {
       "cannot_connect": "Unable to reach the real-time feed.",
-      "invalid_feed": "The response is not a valid GTFS-RT feed."
+      "invalid_feed": "The real-time feed address does not return a valid GTFS-RT feed.",
+      "gtfs_cannot_connect": "Unable to reach the timetables (GTFS).",
+      "invalid_gtfs": "The timetables address does not return a GTFS archive (zip)."
     },
     "abort": {
-      "single_instance_allowed": "The integration is already configured. Add stops from its page."
+      "single_instance_allowed": "The integration is already configured. Add stops from its page.",
+      "reconfigure_successful": "The data sources are updated."
     }
   },
   "config_subentries": {

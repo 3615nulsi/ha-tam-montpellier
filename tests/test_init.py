@@ -20,6 +20,7 @@ from pytest_homeassistant_custom_component.test_util.aiohttp import (
     AiohttpClientMocker,
 )
 
+from custom_components.tam_montpellier.config_flow import SECTION_ADVANCED
 from custom_components.tam_montpellier.const import (
     CONF_ALERTS_URL,
     CONF_DIRECTION_ID,
@@ -136,37 +137,112 @@ def _entry(with_stop: bool = True) -> MockConfigEntry:
 
 
 async def test_user_flow(hass: HomeAssistant, mock_feeds: AiohttpClientMocker) -> None:
-    """The user flow checks the real-time feed and creates the entry."""
+    """The user flow checks the feeds and creates the entry."""
     result = await hass.config_entries.flow.async_init(
         DOMAIN, context={"source": "user"}
     )
     assert result["type"] is FlowResultType.FORM
     result = await hass.config_entries.flow.async_configure(
-        result["flow_id"], ENTRY_DATA
+        result["flow_id"], {SECTION_ADVANCED: ENTRY_DATA}
     )
     assert result["type"] is FlowResultType.CREATE_ENTRY
     assert result["data"] == ENTRY_DATA
 
 
+@pytest.mark.parametrize(
+    ("url", "response", "error"),
+    [
+        (DEFAULT_TRIP_UPDATES_URL, {"exc": ClientError()}, "cannot_connect"),
+        (
+            DEFAULT_TRIP_UPDATES_URL,
+            {"content": b"not a protobuf \xff\xff"},
+            "invalid_feed",
+        ),
+        (DEFAULT_GTFS_URL, {"exc": ClientError()}, "gtfs_cannot_connect"),
+        (DEFAULT_GTFS_URL, {"status": 404}, "gtfs_cannot_connect"),
+        (DEFAULT_GTFS_URL, {"content": b"<html></html>"}, "invalid_gtfs"),
+        (DEFAULT_GTFS_URL, {"content": b"PK"}, "invalid_gtfs"),
+    ],
+)
 async def test_user_flow_errors(
-    hass: HomeAssistant, aioclient_mock: AiohttpClientMocker
+    hass: HomeAssistant,
+    aioclient_mock: AiohttpClientMocker,
+    url: str,
+    response: dict,
+    error: str,
 ) -> None:
-    """Connection and format errors are reported."""
-    aioclient_mock.get(DEFAULT_TRIP_UPDATES_URL, exc=ClientError())
+    """Each unusable data source is reported, then the flow can go on."""
+    aioclient_mock.get(url, **response)
+    _serve_feeds(aioclient_mock)
     result = await hass.config_entries.flow.async_init(
         DOMAIN, context={"source": "user"}
     )
     result = await hass.config_entries.flow.async_configure(
-        result["flow_id"], ENTRY_DATA
+        result["flow_id"], {SECTION_ADVANCED: ENTRY_DATA}
     )
-    assert result["errors"] == {"base": "cannot_connect"}
+    assert result["type"] is FlowResultType.FORM
+    assert result["errors"] == {"base": error}
 
     aioclient_mock.clear_requests()
-    aioclient_mock.get(DEFAULT_TRIP_UPDATES_URL, content=b"not a protobuf \xff\xff")
+    _serve_feeds(aioclient_mock)
     result = await hass.config_entries.flow.async_configure(
-        result["flow_id"], ENTRY_DATA
+        result["flow_id"], {SECTION_ADVANCED: ENTRY_DATA}
     )
-    assert result["errors"] == {"base": "invalid_feed"}
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+
+
+async def test_reconfigure_flow(
+    hass: HomeAssistant,
+    mock_feeds: AiohttpClientMocker,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """The data sources can be changed without losing the followed stops."""
+    freezer.move_to(paris(8, 12))
+    entry = _entry()
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    subentries = dict(entry.subentries)
+
+    new_alerts = "https://example.org/Alert.pb"
+    mock_feeds.get(new_alerts, content=build_alerts())
+    result = await entry.start_reconfigure_flow(hass)
+    assert result["type"] is FlowResultType.FORM
+    assert result["step_id"] == "reconfigure"
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {SECTION_ADVANCED: {**ENTRY_DATA, CONF_ALERTS_URL: new_alerts}},
+    )
+    await hass.async_block_till_done()
+    assert result["type"] is FlowResultType.ABORT
+    assert result["reason"] == "reconfigure_successful"
+    assert entry.data[CONF_ALERTS_URL] == new_alerts
+    assert entry.subentries == subentries
+    assert entry.state is ConfigEntryState.LOADED
+    assert hass.states.get(MINUTES_SENSOR) is not None
+
+
+async def test_reconfigure_flow_error(
+    hass: HomeAssistant,
+    mock_feeds: AiohttpClientMocker,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """A wrong address is reported and leaves the entry unchanged."""
+    freezer.move_to(paris(8, 12))
+    entry = _entry()
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    wrong = "https://example.org/GTFS.zip"
+    mock_feeds.get(wrong, content=b"<html></html>")
+    result = await entry.start_reconfigure_flow(hass)
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {SECTION_ADVANCED: {**ENTRY_DATA, CONF_GTFS_URL: wrong}}
+    )
+    assert result["type"] is FlowResultType.FORM
+    assert result["errors"] == {"base": "invalid_gtfs"}
+    assert entry.data == ENTRY_DATA
 
 
 async def test_sensors(
