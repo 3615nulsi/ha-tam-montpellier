@@ -38,8 +38,8 @@ Home Assistant 2026.2 minimum (l'icône apparaît à partir de 2026.3).
    Les réglages proposés conviennent, validez.
 2. Sur la page de l'intégration, cliquez sur **Ajouter un arrêt**, puis
    choisissez la ligne, la direction et l'arrêt. Vous pouvez aussi indiquer le
-   temps de marche jusqu'à l'arrêt (facultatif, modifiable ensuite avec les
-   trois points de l'arrêt → *Trajet à pied jusqu'à l'arrêt*).
+   temps de marche jusqu'à l'arrêt (facultatif, modifiable ensuite avec
+   l'engrenage de l'arrêt).
 
 Recommencez pour chaque arrêt. Chacun devient un appareil, par exemple
 « Comédie → Mosson (Tram 1) », avec ces capteurs :
