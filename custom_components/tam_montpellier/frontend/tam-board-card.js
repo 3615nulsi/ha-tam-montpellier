@@ -6,7 +6,7 @@
  * stop in the visual editor; the card finds that stop's sensors by itself.
  */
 
-const CARD_VERSION = "0.9.1";
+const CARD_VERSION = "1.0.0b1";
 const DOMAIN = "tam_montpellier";
 
 // Texts of the card, in French or in English after the user's language.
