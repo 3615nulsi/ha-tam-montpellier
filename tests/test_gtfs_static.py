@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
+from datetime import date
+import io
 import json
 import os
 from pathlib import Path
@@ -24,7 +26,7 @@ from custom_components.tam_montpellier.gtfs_static import (
 )
 from custom_components.tam_montpellier.labels import DEFAULT_LABELS
 
-from .conftest import build_trip_updates, paris, trip_id
+from .conftest import build_gtfs, build_trip_updates, paris, trip_id
 
 
 def test_read_columns_missing_column(tmp_path: Path) -> None:
@@ -282,11 +284,32 @@ def test_previous_trips(gtfs_zip: Path) -> None:
     static = parse_static(gtfs_zip)
     # D -> A at 08:10 (direction 1, index 1), then A -> D at 08:20 (index 2).
     assert static.previous_trips[trip_id(2)] == trip_id(1, direction=1)
-    assert static.previous_trips["102"] == "201"
-    # Chains stay within a service: active and inactive copies never mix.
+    # The inactive copies, which carry the blocks, are dropped once chained.
+    assert "102" not in static.trips
     assert all(
-        later.startswith("U_") == earlier.startswith("U_")
+        later.startswith("U_") and earlier.startswith("U_")
         for later, earlier in static.previous_trips.items()
     )
+    assert all(trip.startswith("U_") for trip in static.trip_starts)
     # The first trip of a block has no predecessor.
     assert trip_id(1, direction=1) not in static.previous_trips
+
+
+def test_weekly_calendar(tmp_path: Path) -> None:
+    """Services may also be given by weekday, in calendar.txt."""
+    source = zipfile.ZipFile(io.BytesIO(build_gtfs()))
+    path = tmp_path / "weekly.zip"
+    with zipfile.ZipFile(path, "w") as archive:
+        for info in source.infolist():
+            archive.writestr(info, source.read(info))
+        archive.writestr(
+            "calendar.txt",
+            "service_id,monday,tuesday,wednesday,thursday,friday,saturday,sunday,"
+            "start_date,end_date\n"
+            "WEEK,1,1,1,1,1,0,0,20261005,20261016\n",
+        )
+    static = parse_static(path)
+    assert "WEEK" in static.services_on(date(2026, 10, 5))
+    assert "WEEK" not in static.services_on(date(2026, 10, 10))
+    assert "WEEK" in static.services_on(date(2026, 10, 16))
+    assert not static.services_on(date(2026, 10, 17))

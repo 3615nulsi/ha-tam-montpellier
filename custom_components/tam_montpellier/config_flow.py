@@ -117,7 +117,7 @@ async def _async_check_gtfs(hass: HomeAssistant, url: str) -> str | None:
 
 
 # Walk to the stop and "time to leave" window, in minutes.
-_LEAVE_FIELDS = {
+_LEAVE_FIELDS: dict[vol.Marker, NumberSelector] = {
     vol.Optional(CONF_WALK_MINUTES): NumberSelector(
         NumberSelectorConfig(
             min=0,
@@ -474,22 +474,21 @@ class StopSubentryFlowHandler(ConfigSubentryFlow):
             )
 
         offered = static.offered_stops(self._route_id, self._direction_id)
+        fields: dict[vol.Marker, Any] = {
+            vol.Required(CONF_STOP_ID): SelectSelector(
+                SelectSelectorConfig(
+                    options=[
+                        SelectOptionDict(value=stop_id, label=name)
+                        for name, stop_id in offered.items()
+                    ],
+                    mode=SelectSelectorMode.DROPDOWN,
+                )
+            ),
+            **_LEAVE_FIELDS,
+        }
         return self.async_show_form(
             step_id="stop",
-            data_schema=vol.Schema(
-                {
-                    vol.Required(CONF_STOP_ID): SelectSelector(
-                        SelectSelectorConfig(
-                            options=[
-                                SelectOptionDict(value=stop_id, label=name)
-                                for name, stop_id in offered.items()
-                            ],
-                            mode=SelectSelectorMode.DROPDOWN,
-                        )
-                    ),
-                    **_LEAVE_FIELDS,
-                }
-            ),
+            data_schema=vol.Schema(fields),
             description_placeholders={
                 "line": (
                     f"{line_kind(self._labels, static, self._route_id)} "

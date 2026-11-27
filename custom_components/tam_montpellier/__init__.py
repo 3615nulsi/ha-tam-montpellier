@@ -128,7 +128,8 @@ async def _async_stored_resources(
         return None
     # Loaded on first use only: changing them before would overwrite them.
     await lovelace.resources.async_get_info()
-    return lovelace.resources
+    resources: ResourceStorageCollection = lovelace.resources
+    return resources
 
 
 def _card_resources(resources: ResourceStorageCollection) -> list[dict[str, Any]]:

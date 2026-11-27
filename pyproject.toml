@@ -27,7 +27,7 @@ warn_unreachable = true
 
 [[tool.mypy.overrides]]
 # Generated protobuf code, without type hints.
-module = ["google.transit.*"]
+module = ["google.transit.*", "google.protobuf.*"]
 ignore_missing_imports = true
 
 [tool.coverage.run]
@@ -35,5 +35,6 @@ source = ["custom_components.tam_montpellier"]
 branch = true
 
 [tool.coverage.report]
+fail_under = 95
 show_missing = true
 skip_covered = true

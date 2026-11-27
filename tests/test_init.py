@@ -41,6 +41,7 @@ from custom_components.tam_montpellier.const import (
     DOMAIN,
     SUBENTRY_TYPE_STOP,
 )
+from custom_components.tam_montpellier.coordinator import _read_validators
 from custom_components.tam_montpellier.gtfs_static import parse_static
 from homeassistant.config_entries import ConfigEntryState, ConfigSubentryData
 from homeassistant.core import HomeAssistant
@@ -55,6 +56,7 @@ from .conftest import (
     build_gtfs,
     build_trip_updates,
     build_vehicle_positions,
+    find_device,
     paris,
     trip_id,
 )
@@ -323,7 +325,7 @@ async def test_card_attributes_survive_renaming(
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
 
-    device = dr.async_get(hass).async_get_device({(DOMAIN, "B_1_0")})
+    device = find_device(hass, "B_1_0")
     dr.async_get(hass).async_update_device(device.id, name_by_user="Maison")
     assert await hass.config_entries.async_reload(entry.entry_id)
     await hass.async_block_till_done()
@@ -463,9 +465,8 @@ async def test_labels_in_french(
     entry.add_to_hass(hass)
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
-    devices = dr.async_get(hass)
-    assert devices.async_get_device({(DOMAIN, "line_1")}).model == "Ligne de tramway"
-    assert devices.async_get_device({(DOMAIN, "B_1_0")}).model == "Tram 1"
+    assert find_device(hass, "line_1").model == "Ligne de tramway"
+    assert find_device(hass, "B_1_0").model == "Tram 1"
 
     result = await hass.config_entries.subentries.async_init(
         (entry.entry_id, SUBENTRY_TYPE_STOP), context={"source": "user"}
@@ -554,6 +555,58 @@ async def test_realtime_outage_falls_back_to_schedule(
     assert state.attributes["source"] == "scheduled"
     # Trams in service cannot be counted without any real-time feed.
     assert hass.states.get(VEHICLES_SENSOR).state == "unavailable"
+
+
+async def test_optional_feed_outages(
+    hass: HomeAssistant,
+    aioclient_mock: AiohttpClientMocker,
+    freezer: FrozenDateTimeFactory,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """Alert and position feed outages are logged once, and their recovery."""
+    freezer.move_to(paris(8, 12))
+    aioclient_mock.get(DEFAULT_ALERTS_URL, exc=ClientError())
+    aioclient_mock.get(DEFAULT_VEHICLE_POSITIONS_URL, exc=ClientError())
+    _serve_feeds(aioclient_mock)
+    entry = _entry()
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    await entry.runtime_data.async_refresh()
+    assert caplog.text.count("TaM alert feed unavailable") == 1
+    assert caplog.text.count("TaM vehicle position feed unavailable") == 1
+    assert entry.runtime_data.feeds_available == {
+        "trip_updates": True,
+        "alerts": False,
+        "vehicle_positions": False,
+    }
+
+    aioclient_mock.clear_requests()
+    _serve_feeds(aioclient_mock)
+    await entry.runtime_data.async_refresh()
+    assert "TaM alert feed is available again" in caplog.text
+    assert "TaM vehicle position feed is available again" in caplog.text
+    assert all(entry.runtime_data.feeds_available.values())
+
+
+@pytest.mark.parametrize(
+    ("content", "expected"),
+    [
+        (None, {}),
+        (b"not json", {}),
+        (b"[1, 2]", {}),
+        (
+            b'{"If-None-Match": "\\"v1\\"", "If-Modified-Since": 3, "Other": "x"}',
+            {"If-None-Match": '"v1"'},
+        ),
+    ],
+)
+def test_read_validators(tmp_path: Path, content: bytes | None, expected: dict) -> None:
+    """Missing, broken or unexpected validators are ignored."""
+    path = tmp_path / "gtfs_validators.json"
+    if content is not None:
+        path.write_bytes(content)
+    assert _read_validators(path) == expected
 
 
 async def test_gtfs_unavailable(
@@ -681,7 +734,7 @@ async def test_bus_lines_option(
         "sensor.bus_stop_bus_terminus_bus_10_minutes_to_next_departure"
     )
     assert minutes.state == "5"
-    device = dr.async_get(hass).async_get_device({(DOMAIN, "X_10_0")})
+    device = find_device(hass, "X_10_0")
     assert device.model == "Bus 10"
     # Only the trams are counted.
     assert not [
@@ -1007,8 +1060,8 @@ async def test_stale_line_device_removed(
     assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
     assert registry.async_get(gone.id) is None
-    assert registry.async_get_device({(DOMAIN, "line_1")}) is not None
-    assert registry.async_get_device({(DOMAIN, "B_1_0")}) is not None
+    assert find_device(hass, "line_1") is not None
+    assert find_device(hass, "B_1_0") is not None
 
 
 async def test_disruption_sensor(
@@ -1149,7 +1202,7 @@ async def test_vehicles_sensor(
     assert state.attributes["line"] == "1"
     assert state.attributes["running"] == 3
     assert state.attributes["vehicles"] == ["2004", "2007", "2020"]
-    device = device_registry.async_get_device(identifiers={(DOMAIN, "line_1")})
+    device = find_device(hass, "line_1")
     assert device is not None
     assert device.name == "Tram 1"
 

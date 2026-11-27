@@ -20,6 +20,7 @@ from google.transit import gtfs_realtime_pb2
 import pytest
 
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers import device_registry as dr
 
 PARIS = ZoneInfo("Europe/Paris")
 SERVICE_DAY = "20260923"
@@ -225,3 +226,19 @@ def build_alerts(*alerts: dict) -> bytes:
                     text=alert[field], language="fr"
                 )
     return feed.SerializeToString()
+
+
+def find_device(hass: HomeAssistant, identifier: str) -> dr.DeviceEntry | None:
+    """Return the device of the integration with this identifier.
+
+    Searched among all devices: newer Home Assistant versions refuse
+    ``async_get_device``, whose replacement older ones do not have.
+    """
+    return next(
+        (
+            device
+            for device in dr.async_get(hass).devices.values()
+            if ("tam_montpellier", identifier) in device.identifiers
+        ),
+        None,
+    )
