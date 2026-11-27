@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 from datetime import timedelta
+import io
 import logging
+from pathlib import Path
 from unittest.mock import ANY, patch
+import zipfile
 
 from aiohttp import ClientError
 from freezegun.api import FrozenDateTimeFactory
@@ -34,10 +37,12 @@ from custom_components.tam_montpellier.const import (
     DOMAIN,
     SUBENTRY_TYPE_STOP,
 )
+from custom_components.tam_montpellier.gtfs_static import parse_static
 from homeassistant.config_entries import ConfigEntryState, ConfigSubentryData
 from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
 from homeassistant.helpers import device_registry as dr, entity_registry as er
+from homeassistant.helpers.storage import STORAGE_DIR
 from homeassistant.loader import async_get_integration
 from homeassistant.setup import async_setup_component
 
@@ -70,7 +75,14 @@ CARD_URL = "/tam_montpellier/tam-board-card.js"
 @pytest.fixture(name="mock_feeds")
 def mock_feeds_fixture(aioclient_mock: AiohttpClientMocker) -> AiohttpClientMocker:
     """Serve the synthetic feeds."""
-    aioclient_mock.get(DEFAULT_GTFS_URL, content=build_gtfs())
+    return _serve_feeds(aioclient_mock)
+
+
+def _serve_feeds(
+    aioclient_mock: AiohttpClientMocker, gtfs: bytes | None = None
+) -> AiohttpClientMocker:
+    """Serve the synthetic feeds, with another GTFS archive if given."""
+    aioclient_mock.get(DEFAULT_GTFS_URL, content=build_gtfs() if gtfs is None else gtfs)
     aioclient_mock.get(DEFAULT_ALERTS_URL, content=build_alerts())
     aioclient_mock.get(DEFAULT_VEHICLE_POSITIONS_URL, content=build_vehicle_positions())
     aioclient_mock.get(
@@ -86,6 +98,17 @@ def mock_feeds_fixture(aioclient_mock: AiohttpClientMocker) -> AiohttpClientMock
         ),
     )
     return aioclient_mock
+
+
+def _gtfs_without(name: str) -> bytes:
+    """Return the synthetic GTFS archive without one of its files."""
+    source = zipfile.ZipFile(io.BytesIO(build_gtfs()))
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as archive:
+        for info in source.infolist():
+            if info.filename != name:
+                archive.writestr(info, source.read(info))
+    return buffer.getvalue()
 
 
 def _gtfs_downloads(aioclient_mock: AiohttpClientMocker) -> int:
@@ -475,6 +498,116 @@ async def test_gtfs_cache_reused(
     assert entry.state is ConfigEntryState.LOADED
 
 
+def _gtfs_path(hass: HomeAssistant) -> Path:
+    return Path(hass.config.path(STORAGE_DIR, DOMAIN, "gtfs.zip"))
+
+
+async def test_invalid_gtfs_download_keeps_archive(
+    hass: HomeAssistant,
+    mock_feeds: AiohttpClientMocker,
+    freezer: FrozenDateTimeFactory,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """An unusable nightly archive does not replace the cached one."""
+    await hass.config.async_set_time_zone("Europe/Paris")
+    freezer.move_to(paris(8, 12))
+    entry = _entry()
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    archive = _gtfs_path(hass).read_bytes()
+
+    # A web page served with a 200 status instead of the archive.
+    mock_feeds.clear_requests()
+    _serve_feeds(mock_feeds, gtfs=b"<html><body>Maintenance</body></html>")
+    freezer.move_to(paris(3, 30, day=24))
+    async_fire_time_changed(hass, fire_all=True)
+    await hass.async_block_till_done(wait_background_tasks=True)
+    assert _gtfs_downloads(mock_feeds) == 1
+    assert "Ignoring the downloaded TaM GTFS archive" in caplog.text
+    assert _gtfs_path(hass).read_bytes() == archive
+    assert not list(_gtfs_path(hass).parent.glob("*.new.zip"))
+
+    assert await hass.config_entries.async_reload(entry.entry_id)
+    await hass.async_block_till_done()
+    assert entry.state is ConfigEntryState.LOADED
+    assert hass.states.get(MINUTES_SENSOR) is not None
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        b"<html><body>Maintenance</body></html>",
+        build_gtfs()[:2000],
+        _gtfs_without("stop_times.txt"),
+    ],
+    ids=["html", "truncated", "missing_file"],
+)
+async def test_invalid_gtfs_at_install(
+    hass: HomeAssistant,
+    aioclient_mock: AiohttpClientMocker,
+    freezer: FrozenDateTimeFactory,
+    payload: bytes,
+) -> None:
+    """Setup is retried, and nothing cached, while the archive is unusable."""
+    freezer.move_to(paris(8, 12))
+    _serve_feeds(aioclient_mock, gtfs=payload)
+    entry = _entry()
+    entry.add_to_hass(hass)
+    await hass.config_entries.async_setup(entry.entry_id)
+    assert entry.state is ConfigEntryState.SETUP_RETRY
+    assert not _gtfs_path(hass).exists()
+
+
+async def test_corrupt_cached_gtfs_downloaded_again(
+    hass: HomeAssistant,
+    mock_feeds: AiohttpClientMocker,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """A recent but unreadable cached archive is replaced at once."""
+    freezer.move_to(paris(8, 12))
+    _gtfs_path(hass).parent.mkdir(parents=True)
+    _gtfs_path(hass).write_bytes(build_gtfs()[:2000])
+    entry = _entry()
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    assert entry.state is ConfigEntryState.LOADED
+    assert _gtfs_downloads(mock_feeds) == 1
+    with zipfile.ZipFile(_gtfs_path(hass)) as archive:
+        assert archive.testzip() is None
+
+
+async def test_gtfs_parsed_once_per_download(
+    hass: HomeAssistant,
+    mock_feeds: AiohttpClientMocker,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """Checking a downloaded archive does not parse it a second time."""
+    await hass.config.async_set_time_zone("Europe/Paris")
+    freezer.move_to(paris(8, 12))
+    with patch(
+        "custom_components.tam_montpellier.gtfs_static.parse_static",
+        wraps=parse_static,
+    ) as parse:
+        entry = _entry()
+        entry.add_to_hass(hass)
+        assert await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+        assert parse.call_count == 1
+
+        freezer.move_to(paris(3, 30, day=24))
+        async_fire_time_changed(hass, fire_all=True)
+        await hass.async_block_till_done(wait_background_tasks=True)
+        assert _gtfs_downloads(mock_feeds) == 2
+        assert parse.call_count == 2
+
+        # The archive moved into place keeps the cached parse.
+        assert await hass.config_entries.async_reload(entry.entry_id)
+        await hass.async_block_till_done()
+        assert parse.call_count == 2
+
+
 async def test_disruption_sensor(
     hass: HomeAssistant,
     aioclient_mock: AiohttpClientMocker,
@@ -743,6 +876,50 @@ async def test_card_declared_as_resource(
     assert await hass.config_entries.async_remove(entry.entry_id)
     await hass.async_block_till_done()
     assert resources.async_items() == []
+
+
+async def test_card_declared_again_when_integration_added_again(
+    hass: HomeAssistant,
+    mock_feeds: AiohttpClientMocker,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """Removing then adding the integration, without a restart, keeps the card."""
+    freezer.move_to(paris(8, 12))
+    entry = await _set_up_with_dashboards(hass)
+    resources = hass.data["lovelace"].resources
+    assert await hass.config_entries.async_remove(entry.entry_id)
+    await hass.async_block_till_done()
+    assert resources.async_items() == []
+
+    entry = _entry()
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    assert await hass.config_entries.async_reload(entry.entry_id)
+    await hass.async_block_till_done()
+    assert resources.async_items() == [
+        {"id": ANY, "type": "module", "url": await _card_url(hass)}
+    ]
+
+
+async def test_card_removal_failure_logged(
+    hass: HomeAssistant,
+    mock_feeds: AiohttpClientMocker,
+    freezer: FrozenDateTimeFactory,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The integration is removed even if the card resource cannot be."""
+    freezer.move_to(paris(8, 12))
+    entry = await _set_up_with_dashboards(hass)
+    with patch.object(
+        hass.data["lovelace"].resources,
+        "async_delete_item",
+        side_effect=RuntimeError("internal API changed"),
+    ):
+        assert await hass.config_entries.async_remove(entry.entry_id)
+        await hass.async_block_till_done()
+    assert "Could not remove the TaM card from the dashboard resources" in caplog.text
+    assert hass.config_entries.async_get_entry(entry.entry_id) is None
 
 
 async def test_card_resource_updated(

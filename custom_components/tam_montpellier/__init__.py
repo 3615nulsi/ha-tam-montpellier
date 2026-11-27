@@ -6,7 +6,6 @@ from datetime import datetime
 import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
-import zipfile
 
 from homeassistant.components.frontend import add_extra_js_url
 from homeassistant.components.http import StaticPathConfig
@@ -19,7 +18,7 @@ from homeassistant.helpers.typing import ConfigType
 from homeassistant.loader import async_get_integration
 
 from .const import DOMAIN, GTFS_REFRESH_HOUR, GTFS_REFRESH_MINUTE
-from .coordinator import GtfsDownloadError, TamConfigEntry, TamCoordinator
+from .coordinator import GTFS_ERRORS, GtfsDownloadError, TamConfigEntry, TamCoordinator
 
 if TYPE_CHECKING:
     from homeassistant.components.lovelace.resources import ResourceStorageCollection
@@ -34,23 +33,34 @@ CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 CARD_URL = f"/{DOMAIN}/tam-board-card.js"
 CARD_PATH = Path(__file__).parent / "frontend" / "tam-board-card.js"
 
-# Errors raised while loading an unusable GTFS archive.
-_GTFS_ERRORS = (GtfsDownloadError, zipfile.BadZipFile, KeyError, ValueError)
+# Set once the card is loaded as an extra module, which cannot be undone.
+_EXTRA_MODULE_LOADED = f"{DOMAIN}_card_extra_module"
 
 
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
-    """Serve the departure board card and load it in the frontend."""
+    """Serve the departure board card."""
     await hass.http.async_register_static_paths(
         [StaticPathConfig(CARD_URL, str(CARD_PATH), cache_headers=True)]
     )
+    return True
+
+
+async def _async_load_card(hass: HomeAssistant) -> None:
+    """Load the card in the frontend.
+
+    Done with each setup of the entry, not once per start of Home Assistant:
+    the resource is removed with the integration, and must come back when the
+    integration is added again.
+    """
     # The card is cached by browsers and apps; the version in its URL makes
     # them fetch the new one when the integration is updated.
     integration = await async_get_integration(hass, DOMAIN)
     url = f"{CARD_URL}?v={integration.version}"
-    declared = await _async_declare_card(hass, url)
-    if not declared and "frontend" in hass.config.components:
+    if await _async_declare_card(hass, url):
+        return
+    if "frontend" in hass.config.components and not hass.data.get(_EXTRA_MODULE_LOADED):
         add_extra_js_url(hass, url)
-    return True
+        hass.data[_EXTRA_MODULE_LOADED] = True
 
 
 async def _async_declare_card(hass: HomeAssistant, url: str) -> bool:
@@ -108,10 +118,11 @@ def _card_resources(resources: ResourceStorageCollection) -> list[dict[str, Any]
 
 async def async_setup_entry(hass: HomeAssistant, entry: TamConfigEntry) -> bool:
     """Set up TaM Montpellier from a config entry."""
+    await _async_load_card(hass)
     coordinator = TamCoordinator(hass, entry)
     try:
-        await coordinator.async_load_static()
-    except _GTFS_ERRORS as err:
+        await _async_load_static(coordinator)
+    except GTFS_ERRORS as err:
         raise ConfigEntryNotReady(
             translation_domain=DOMAIN,
             translation_key="gtfs_unavailable",
@@ -124,7 +135,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: TamConfigEntry) -> bool:
         """Reload the GTFS archive, published daily by the operator."""
         try:
             await coordinator.async_load_static(force_download=True)
-        except _GTFS_ERRORS as err:
+        except GTFS_ERRORS as err:
             _LOGGER.warning("Could not reload the TaM GTFS archive: %s", err)
             return
         await coordinator.async_request_refresh()
@@ -145,6 +156,20 @@ async def async_setup_entry(hass: HomeAssistant, entry: TamConfigEntry) -> bool:
     return True
 
 
+async def _async_load_static(coordinator: TamCoordinator) -> None:
+    """Load the timetables, downloading them again if the cached ones fail."""
+    try:
+        await coordinator.async_load_static()
+    except GtfsDownloadError:
+        raise  # Nothing cached, and the download just failed.
+    except GTFS_ERRORS as err:
+        _LOGGER.warning(
+            "Could not read the cached TaM GTFS archive, downloading it again: %r",
+            err,
+        )
+        await coordinator.async_load_static(force_download=True)
+
+
 async def _async_update_listener(hass: HomeAssistant, entry: TamConfigEntry) -> None:
     """Reload the entry when its subentries change."""
     await hass.config_entries.async_reload(entry.entry_id)
@@ -157,7 +182,15 @@ async def async_unload_entry(hass: HomeAssistant, entry: TamConfigEntry) -> bool
 
 async def async_remove_entry(hass: HomeAssistant, entry: TamConfigEntry) -> None:
     """Remove the card from the dashboard resources with the integration."""
-    if (resources := await _async_stored_resources(hass)) is None:
-        return
-    for item in _card_resources(resources):
-        await resources.async_delete_item(item["id"])
+    try:
+        if (resources := await _async_stored_resources(hass)) is None:
+            return
+        for item in _card_resources(resources):
+            await resources.async_delete_item(item["id"])
+    except Exception:
+        # The resources API is internal to Home Assistant: should it change,
+        # the integration must still be removable.
+        _LOGGER.warning(
+            "Could not remove the TaM card from the dashboard resources",
+            exc_info=True,
+        )

@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import csv
 from datetime import datetime
 import logging
 from pathlib import Path
+import zipfile
+import zlib
 
 from aiohttp import ClientError, ClientTimeout
 from google.protobuf.message import DecodeError
@@ -62,6 +65,18 @@ class GtfsDownloadError(Exception):
     """Raised when the static GTFS archive cannot be obtained."""
 
 
+# Errors raised while obtaining or reading an unusable GTFS archive.
+GTFS_ERRORS = (
+    GtfsDownloadError,
+    zipfile.BadZipFile,
+    KeyError,
+    ValueError,
+    EOFError,
+    zlib.error,
+    csv.Error,
+)
+
+
 def stop_key_from_data(data: dict) -> StopKey:
     """Build the stop key of a stop subentry."""
     return (data[CONF_STOP_ID], data[CONF_ROUTE_ID], int(data[CONF_DIRECTION_ID]))
@@ -114,14 +129,12 @@ class TamCoordinator(DataUpdateCoordinator[dict[StopKey, list[Departure]]]):
 
         The parsed archive is cached, so a restart does not parse it again.
         """
-        await self._async_download_gtfs(force_download)
-        self.static = await self.hass.async_add_executor_job(
-            load_static,
-            self._gtfs_path,
-            self._static_cache_path,
-            {key[0] for key in self.stop_keys},
-            set(self.config_entry.options.get(CONF_EXTRA_ROUTES, [])),
-        )
+        static = await self._async_download_gtfs(force_download)
+        if static is None:
+            static = await self.hass.async_add_executor_job(
+                self._load_static, self._gtfs_path
+            )
+        self.static = static
         _LOGGER.debug(
             "Loaded %d lines and %d trips from GTFS",
             len(self.static.routes),
@@ -129,6 +142,18 @@ class TamCoordinator(DataUpdateCoordinator[dict[StopKey, list[Departure]]]):
         )
         if _LOGGER.isEnabledFor(logging.DEBUG):
             self._log_scheduled_departures()
+
+    def _load_static(self, archive_path: Path) -> StaticData:
+        """Parse an archive, or reuse its cached parse; run in the executor."""
+        static = load_static(
+            archive_path,
+            self._static_cache_path,
+            {key[0] for key in self.stop_keys},
+            set(self.config_entry.options.get(CONF_EXTRA_ROUTES, [])),
+        )
+        if not static.routes:
+            raise ValueError("no tram line in the GTFS archive")
+        return static
 
     def _log_scheduled_departures(self) -> None:
         """Log what the archive offers at each monitored stop."""
@@ -152,11 +177,17 @@ class TamCoordinator(DataUpdateCoordinator[dict[StopKey, list[Departure]]]):
                 upcoming[0].time.isoformat() if upcoming else "none in the next day",
             )
 
-    async def _async_download_gtfs(self, force: bool) -> None:
-        """Refresh the cached GTFS archive, keeping the old one on failure."""
+    async def _async_download_gtfs(self, force: bool) -> StaticData | None:
+        """Refresh the cached GTFS archive, keeping the old one on failure.
+
+        The download is parsed before it replaces the cached archive: a web
+        page served instead of the archive, or a truncated one, would
+        otherwise be kept as recent enough until the next day. Returns the
+        parsed download, None when the cached archive is kept.
+        """
         mtime = await self.hass.async_add_executor_job(_file_mtime, self._gtfs_path)
         if not force and mtime is not None and dt_util.utcnow() - mtime < GTFS_MAX_AGE:
-            return
+            return None
         session = async_get_clientsession(self.hass)
         try:
             async with session.get(
@@ -169,8 +200,37 @@ class TamCoordinator(DataUpdateCoordinator[dict[StopKey, list[Departure]]]):
             if mtime is None:
                 raise GtfsDownloadError(str(err)) from err
             _LOGGER.warning("Could not refresh the TaM GTFS archive: %s", err)
-            return
-        await self.hass.async_add_executor_job(_write_file, self._gtfs_path, payload)
+            return None
+        try:
+            return await self.hass.async_add_executor_job(
+                self._replace_archive, payload
+            )
+        except GTFS_ERRORS as err:
+            if mtime is None:
+                raise GtfsDownloadError(
+                    f"unusable GTFS archive downloaded: {err!r}"
+                ) from err
+            _LOGGER.warning(
+                "Ignoring the downloaded TaM GTFS archive, keeping the cached one: %r",
+                err,
+            )
+            return None
+
+    def _replace_archive(self, payload: bytes) -> StaticData:
+        """Parse a downloaded archive, then cache it; run in the executor.
+
+        The parse is cached under the new file, which keeps its modification
+        time when moved into place: it is not parsed again.
+        """
+        new_path = self._gtfs_path.with_name("gtfs.new.zip")
+        _write_file(new_path, payload)
+        try:
+            static = self._load_static(new_path)
+        except BaseException:
+            new_path.unlink(missing_ok=True)
+            raise
+        new_path.replace(self._gtfs_path)
+        return static
 
     async def _async_update_data(self) -> dict[StopKey, list[Departure]]:
         """Fetch the real-time feed and compute departures.
