@@ -238,10 +238,14 @@ def compute_departures(
         for scheduled in passages:
             if scheduled.service_id not in services:
                 continue
-            when = day_start + timedelta(seconds=scheduled.departure)
+            # GTFS times are read on the wall clock of the service day. On the
+            # night of a daylight saving change, that time is turned into an
+            # instant before any comparison: two datetimes of the same zone
+            # compare and subtract by wall clock, ignoring the change.
+            when_ts = (day_start + timedelta(seconds=scheduled.departure)).timestamp()
             source = DepartureSource.SCHEDULED
             delay: int | None = None
-            if abs(when - now) <= REALTIME_MATCH_WINDOW:
+            if abs(when_ts - now_ts) <= REALTIME_MATCH_WINDOW.total_seconds():
                 if scheduled.trip_id in realtime.canceled:
                     continue
                 if scheduled.trip_id in realtime_trips:
@@ -251,13 +255,15 @@ def compute_departures(
                         continue
                     delay = _terminus_delay(static, scheduled.trip_id, terminus, day)
                     if delay is not None:
-                        when += timedelta(seconds=delay)
+                        when_ts += delay
                         source = DepartureSource.ESTIMATED
-            if when < now:
+            if when_ts < now_ts:
                 continue
             candidates.append(
                 Departure(
-                    time=when,
+                    # Back from the instant: a time skipped in spring is shown
+                    # in summer time, the repeated hour of autumn told apart.
+                    time=datetime.fromtimestamp(when_ts, static.timezone),
                     route_id=route_id,
                     headsign=scheduled.headsign or default_headsign,
                     source=source,
@@ -266,12 +272,16 @@ def compute_departures(
                 )
             )
 
-    candidates.sort(key=lambda dep: (dep.time, _SOURCE_RANK[dep.source]))
+    candidates.sort(key=lambda dep: (dep.time.timestamp(), _SOURCE_RANK[dep.source]))
     departures: list[Departure] = []
     if vehicles:
         candidates = [_with_vehicle(static, dep, vehicles) for dep in candidates]
     for candidate in candidates:
-        if departures and candidate.time - departures[-1].time < DUPLICATE_WINDOW:
+        if (
+            departures
+            and candidate.time.timestamp() - departures[-1].time.timestamp()
+            < DUPLICATE_WINDOW.total_seconds()
+        ):
             if _SOURCE_RANK[candidate.source] < _SOURCE_RANK[departures[-1].source]:
                 departures[-1] = candidate
             continue
