@@ -417,5 +417,19 @@
     "abort": {
       "entry_not_loaded": "L'intégration n'est pas chargée : les lignes de bus ne peuvent pas être listées."
     }
+  },
+  "issues": {
+    "gtfs_stale": {
+      "title": "Horaires TaM périmés",
+      "description": "Les horaires théoriques TaM (GTFS) ont été téléchargés pour la dernière fois le {date}, ou ils ne prévoient aucun passage aujourd'hui ni demain. Des passages peuvent manquer ou être faux.\n\nVérifiez que Home Assistant peut joindre l'adresse des horaires (page de l'intégration, « Reconfigurer »). L'intégration les retélécharge chaque nuit ; ce message disparaît dès qu'une archive à jour est chargée."
+    },
+    "stop_missing": {
+      "title": "Arrêt plus desservi : {stop}",
+      "description": "L'arrêt « {stop} » n'est plus dans les horaires TaM : ses capteurs n'affichent aucun passage. L'opérateur l'a peut-être renommé ou déplacé.\n\nSur la page de l'intégration, supprimez cet arrêt puis ajoutez-le à nouveau avec « Ajouter un arrêt »."
+    },
+    "route_missing": {
+      "title": "La ligne {line} n'est plus dans les horaires",
+      "description": "La ligne {line} n'est plus dans les horaires TaM. Arrêts suivis sur cette ligne : {stops}. Leurs capteurs n'affichent aucun passage.\n\nSi la ligne a changé de numéro, supprimez ces arrêts sur la page de l'intégration et ajoutez-les à nouveau sur la nouvelle ligne."
+    }
   }
 }

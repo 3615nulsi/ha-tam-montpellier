@@ -19,6 +19,7 @@ from homeassistant.loader import async_get_integration
 
 from .const import DOMAIN, GTFS_REFRESH_HOUR, GTFS_REFRESH_MINUTE
 from .coordinator import GTFS_ERRORS, GtfsDownloadError, TamConfigEntry, TamCoordinator
+from .issues import async_delete_issues, async_update_issues
 
 if TYPE_CHECKING:
     from homeassistant.components.lovelace.resources import ResourceStorageCollection
@@ -128,6 +129,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: TamConfigEntry) -> bool:
             translation_key="gtfs_unavailable",
             translation_placeholders={"error": str(err)},
         ) from err
+    await async_update_issues(hass, entry, coordinator)
     await coordinator.async_config_entry_first_refresh()
     entry.runtime_data = coordinator
 
@@ -138,6 +140,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: TamConfigEntry) -> bool:
         except GTFS_ERRORS as err:
             _LOGGER.warning("Could not reload the TaM GTFS archive: %s", err)
             return
+        await async_update_issues(hass, entry, coordinator)
         await coordinator.async_request_refresh()
 
     entry.async_on_unload(
@@ -182,6 +185,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: TamConfigEntry) -> bool
 
 async def async_remove_entry(hass: HomeAssistant, entry: TamConfigEntry) -> None:
     """Remove the card from the dashboard resources with the integration."""
+    async_delete_issues(hass)
     try:
         if (resources := await _async_stored_resources(hass)) is None:
             return

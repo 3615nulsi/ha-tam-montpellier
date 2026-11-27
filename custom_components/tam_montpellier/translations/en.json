@@ -417,5 +417,19 @@
     "abort": {
       "entry_not_loaded": "The integration is not loaded: bus lines cannot be listed."
     }
+  },
+  "issues": {
+    "gtfs_stale": {
+      "title": "TaM timetables are out of date",
+      "description": "The TaM timetables (GTFS) were last downloaded on {date}, or they list no service for today and tomorrow. Departures may be missing or wrong.\n\nCheck that Home Assistant can reach the timetables address (integration page, \"Reconfigure\"). The integration downloads them again every night; this message goes away once a current archive is loaded."
+    },
+    "stop_missing": {
+      "title": "Stop no longer served: {stop}",
+      "description": "The stop \"{stop}\" is no longer in the TaM timetables: its sensors show no departure. The operator may have renamed or moved it.\n\nOn the integration page, delete this stop and add it again with \"Add stop\"."
+    },
+    "route_missing": {
+      "title": "Line {line} is no longer in the timetables",
+      "description": "Line {line} is no longer in the TaM timetables. Followed stops on this line: {stops}. Their sensors show no departure.\n\nIf the line was renumbered, delete these stops on the integration page and add them again on the new line."
+    }
   }
 }
