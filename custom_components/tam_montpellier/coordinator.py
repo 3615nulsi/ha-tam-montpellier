@@ -58,6 +58,7 @@ from .fleet import (
     trip_vehicles,
 )
 from .gtfs_static import StaticData, StopKey, load_static
+from .labels import DEFAULT_LABELS, Labels
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -127,6 +128,8 @@ class TamCoordinator(DataUpdateCoordinator[dict[StopKey, list[Departure]]]):
         """Whether a feed naming the trams answered at the last update."""
         self.trip_vehicles: dict[str, str] = {}
         """Fleet number of the tram running each trip, at the last update."""
+        self.labels: Labels = dict(DEFAULT_LABELS)
+        """Texts built by the integration, in the language of Home Assistant."""
         self.snapshot = RealtimeSnapshot()
         """Real-time trips read at the last update."""
         self.feed_timestamp: datetime | None = None

@@ -451,6 +451,32 @@ async def test_first_and_last_departures(
     assert hass.states.get(last).state == "2026-09-23T22:33:00+00:00"
 
 
+async def test_labels_in_french(
+    hass: HomeAssistant,
+    mock_feeds: AiohttpClientMocker,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """The texts built by the integration follow the language of Home Assistant."""
+    hass.config.language = "fr"
+    freezer.move_to(paris(8, 12))
+    entry = _entry()
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    devices = dr.async_get(hass)
+    assert devices.async_get_device({(DOMAIN, "line_1")}).model == "Ligne de tramway"
+    assert devices.async_get_device({(DOMAIN, "B_1_0")}).model == "Tram 1"
+
+    result = await hass.config_entries.subentries.async_init(
+        (entry.entry_id, SUBENTRY_TYPE_STOP), context={"source": "user"}
+    )
+    result = await hass.config_entries.subentries.async_configure(
+        result["flow_id"], {CONF_ROUTE_ID: "1"}
+    )
+    options = result["data_schema"].schema[CONF_DIRECTION_ID].config["options"]
+    assert options[0] == {"value": "0", "label": "Vers Delta (depuis Alpha)"}
+
+
 async def test_scheduled_departures_logged(
     hass: HomeAssistant,
     mock_feeds: AiohttpClientMocker,
@@ -565,7 +591,8 @@ async def test_stop_subentry_flow(
     )
     assert result["step_id"] == "direction"
     options = result["data_schema"].schema[CONF_DIRECTION_ID].config["options"]
-    assert options[0] == {"value": "0", "label": "Vers Delta (depuis Alpha)"}
+    # Built from the translations, in the language of Home Assistant.
+    assert options[0] == {"value": "0", "label": "To Delta (from Alpha)"}
 
     result = await hass.config_entries.subentries.async_configure(
         result["flow_id"], {CONF_DIRECTION_ID: "0"}

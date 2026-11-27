@@ -566,5 +566,17 @@
         }
       }
     }
+  },
+  "selector": {
+    "labels": {
+      "options": {
+        "towards": "Vers {direction} (depuis {origin})",
+        "clockwise": "sens horaire",
+        "anticlockwise": "sens antihoraire",
+        "tram_line": "Ligne de tramway",
+        "tram": "Tram",
+        "bus": "Bus"
+      }
+    }
   }
 }

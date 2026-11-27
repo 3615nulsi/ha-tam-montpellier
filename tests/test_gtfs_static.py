@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterable
+import json
 import os
 from pathlib import Path
 from unittest.mock import patch
@@ -21,6 +22,7 @@ from custom_components.tam_montpellier.gtfs_static import (
     load_static,
     parse_static,
 )
+from custom_components.tam_montpellier.labels import DEFAULT_LABELS
 
 from .conftest import build_trip_updates, paris, trip_id
 
@@ -112,14 +114,29 @@ def _loop_gtfs(
     return path
 
 
+TRANSLATIONS = (
+    Path(__file__).parent.parent / "custom_components/tam_montpellier/translations"
+)
+FRENCH = json.loads((TRANSLATIONS / "fr.json").read_text())["selector"]["labels"][
+    "options"
+]
+
+
 def test_circular_line_directions(tmp_path: Path, gtfs_zip: Path) -> None:
     """Circular lines are told apart by their way round, others by destination."""
     static = parse_static(_loop_gtfs(tmp_path / "loop.zip"), {"N"})
     assert static.clockwise == {("4", 0): True, ("4", 1): False}
-    assert _direction_option(static, "4", 0) == "4a · sens horaire (Ouest → Nord → Est)"
     assert (
-        _direction_option(static, "4", 1)
+        _direction_option(FRENCH, static, "4", 0)
+        == "4a · sens horaire (Ouest → Nord → Est)"
+    )
+    assert (
+        _direction_option(FRENCH, static, "4", 1)
         == "4b · sens antihoraire (Est → Nord → Ouest)"
+    )
+    assert (
+        _direction_option(DEFAULT_LABELS, static, "4", 1)
+        == "4b · anticlockwise (Est → Nord → Ouest)"
     )
     # Each direction is named as a line, so destinations drop its letter.
     assert static.line_name("4", 1) == "4b"
@@ -130,7 +147,8 @@ def test_circular_line_directions(tmp_path: Path, gtfs_zip: Path) -> None:
     static = parse_static(gtfs_zip)
     assert static.clockwise == {}
     assert static.line_name("1", 0) == "1"
-    assert _direction_option(static, "1", 0) == "Vers Delta (depuis Alpha)"
+    assert _direction_option(FRENCH, static, "1", 0) == "Vers Delta (depuis Alpha)"
+    assert _direction_option(DEFAULT_LABELS, static, "1", 0) == "To Delta (from Alpha)"
 
 
 def test_circular_line_cut_by_works(tmp_path: Path) -> None:

@@ -40,6 +40,7 @@ from .coordinator import (
 from .entity import line_device_id
 from .fleet import fleet_lines
 from .issues import async_delete_issues, async_update_issues
+from .labels import async_get_labels
 from .services import async_setup_services
 
 if TYPE_CHECKING:
@@ -143,6 +144,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: TamConfigEntry) -> bool:
     """Set up TaM Montpellier from a config entry."""
     await _async_load_card(hass)
     coordinator = TamCoordinator(hass, entry)
+    coordinator.labels = await async_get_labels(hass)
     try:
         await _async_load_static(coordinator)
     except GTFS_ERRORS as err:
