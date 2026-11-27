@@ -45,6 +45,11 @@
       "last_departure": {
         "default": "mdi:weather-night"
       }
+    },
+    "event": {
+      "new_disruption": {
+        "default": "mdi:alert-plus-outline"
+      }
     }
   },
   "services": {

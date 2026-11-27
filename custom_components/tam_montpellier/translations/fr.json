@@ -464,6 +464,33 @@
       "last_departure": {
         "name": "Dernier passage du jour"
       }
+    },
+    "event": {
+      "new_disruption": {
+        "name": "Nouvelle perturbation",
+        "state_attributes": {
+          "event_type": {
+            "state": {
+              "new_alert": "Nouvelle alerte"
+            }
+          },
+          "line": {
+            "name": "Ligne"
+          },
+          "title": {
+            "name": "Titre"
+          },
+          "message": {
+            "name": "Message"
+          },
+          "end": {
+            "name": "Fin prévue"
+          },
+          "url": {
+            "name": "Lien"
+          }
+        }
+      }
     }
   },
   "exceptions": {
