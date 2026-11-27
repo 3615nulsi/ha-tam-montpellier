@@ -1,6 +1,6 @@
 [project]
 name = "ha-tam-montpellier"
-version = "1.0.0b1"
+version = "1.0.0"
 description = "Home Assistant integration for the Montpellier tramway (TaM) real-time departures"
 requires-python = ">=3.13"
 
