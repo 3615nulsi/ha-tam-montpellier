@@ -24,6 +24,13 @@ jobs:
       - uses: actions/checkout@v7
         with:
           ref: ${{ env.TAG }}
+      - name: Check the tag against the manifest version
+        run: |
+          version=$(jq -r .version custom_components/tam_montpellier/manifest.json)
+          if [ "$TAG" != "v$version" ]; then
+            echo "::error::Tag $TAG does not match the manifest version $version"
+            exit 1
+          fi
       - name: Build tam_montpellier.zip
         run: |
           cd custom_components/tam_montpellier

@@ -7,7 +7,7 @@ reporting an issue.
 
 | Version          | Supported          |
 | ---------------- | ------------------ |
-| Latest (0.8.x)   | :white_check_mark: |
+| Latest (0.9.x)   | :white_check_mark: |
 | Older releases   | :x:                |
 
 ## Reporting a vulnerability
