@@ -209,7 +209,9 @@ seulement la couleur du texte pour qu'il reste lisible.
   toutes les 30 secondes.
 - Les horaires théoriques (GTFS, environ 8 Mo) sont téléchargés au démarrage
   puis chaque nuit à 3 h 30, et gardés en cache dans
-  `.storage/tam_montpellier/` pour que les redémarrages soient rapides.
+  `.storage/tam_montpellier/` pour que les redémarrages soient rapides. Une
+  archive téléchargée n'est conservée qu'après avoir été lue sans erreur :
+  sinon, la précédente reste en service.
 - La TaM ne publie le détail d'un trajet qu'une fois la rame partie du
   terminus. Pour un arrêt au milieu de la ligne, les passages plus lointains
   sont donc estimés à partir de l'horaire et du retard au départ.

@@ -6,7 +6,6 @@ from datetime import datetime
 import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
-import zipfile
 
 from homeassistant.components.frontend import add_extra_js_url
 from homeassistant.components.http import StaticPathConfig
@@ -19,7 +18,7 @@ from homeassistant.helpers.typing import ConfigType
 from homeassistant.loader import async_get_integration
 
 from .const import DOMAIN, GTFS_REFRESH_HOUR, GTFS_REFRESH_MINUTE
-from .coordinator import GtfsDownloadError, TamConfigEntry, TamCoordinator
+from .coordinator import GTFS_ERRORS, GtfsDownloadError, TamConfigEntry, TamCoordinator
 
 if TYPE_CHECKING:
     from homeassistant.components.lovelace.resources import ResourceStorageCollection
@@ -33,9 +32,6 @@ CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 # The Lovelace card shipped with the integration.
 CARD_URL = f"/{DOMAIN}/tam-board-card.js"
 CARD_PATH = Path(__file__).parent / "frontend" / "tam-board-card.js"
-
-# Errors raised while loading an unusable GTFS archive.
-_GTFS_ERRORS = (GtfsDownloadError, zipfile.BadZipFile, KeyError, ValueError)
 
 
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
@@ -110,8 +106,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: TamConfigEntry) -> bool:
     """Set up TaM Montpellier from a config entry."""
     coordinator = TamCoordinator(hass, entry)
     try:
-        await coordinator.async_load_static()
-    except _GTFS_ERRORS as err:
+        await _async_load_static(coordinator)
+    except GTFS_ERRORS as err:
         raise ConfigEntryNotReady(
             translation_domain=DOMAIN,
             translation_key="gtfs_unavailable",
@@ -124,7 +120,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: TamConfigEntry) -> bool:
         """Reload the GTFS archive, published daily by the operator."""
         try:
             await coordinator.async_load_static(force_download=True)
-        except _GTFS_ERRORS as err:
+        except GTFS_ERRORS as err:
             _LOGGER.warning("Could not reload the TaM GTFS archive: %s", err)
             return
         await coordinator.async_request_refresh()
@@ -143,6 +139,20 @@ async def async_setup_entry(hass: HomeAssistant, entry: TamConfigEntry) -> bool:
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     return True
+
+
+async def _async_load_static(coordinator: TamCoordinator) -> None:
+    """Load the timetables, downloading them again if the cached ones fail."""
+    try:
+        await coordinator.async_load_static()
+    except GtfsDownloadError:
+        raise  # Nothing cached, and the download just failed.
+    except GTFS_ERRORS as err:
+        _LOGGER.warning(
+            "Could not read the cached TaM GTFS archive, downloading it again: %r",
+            err,
+        )
+        await coordinator.async_load_static(force_download=True)
 
 
 async def _async_update_listener(hass: HomeAssistant, entry: TamConfigEntry) -> None:
