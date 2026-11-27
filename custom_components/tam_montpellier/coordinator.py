@@ -118,6 +118,8 @@ class TamCoordinator(DataUpdateCoordinator[dict[StopKey, list[Departure]]]):
         """Whether a feed naming the trams answered at the last update."""
         self.trip_vehicles: dict[str, str] = {}
         """Fleet number of the tram running each trip, at the last update."""
+        self.feed_timestamp: datetime | None = None
+        """Time of the last real-time feed read, as stamped by the operator."""
         self.stop_keys: set[StopKey] = {
             stop_key_from_data(subentry.data)
             for subentry in entry.subentries.values()
@@ -252,6 +254,8 @@ class TamCoordinator(DataUpdateCoordinator[dict[StopKey, list[Departure]]]):
             self._set_realtime_available(False, err)
         else:
             self._set_realtime_available(True, None)
+            if snapshot.timestamp:
+                self.feed_timestamp = dt_util.utc_from_timestamp(snapshot.timestamp)
         self._update_fleet(snapshot, positions)
         return await self.hass.async_add_executor_job(
             self._compute_departures, snapshot, dt_util.now()
@@ -325,6 +329,26 @@ class TamCoordinator(DataUpdateCoordinator[dict[StopKey, list[Departure]]]):
             )
             for key in self.stop_keys
         }
+
+    @property
+    def feeds_available(self) -> dict[str, bool]:
+        """Return whether each real-time feed answered at the last update."""
+        return {
+            "trip_updates": self._realtime_available,
+            "alerts": self._alerts_available,
+            "vehicle_positions": self._positions_available,
+        }
+
+    def archive_info(self) -> tuple[datetime, int] | None:
+        """Return when the cached GTFS archive was downloaded, and its size.
+
+        Run in the executor; None when there is no archive.
+        """
+        try:
+            stat = self._gtfs_path.stat()
+        except FileNotFoundError:
+            return None
+        return dt_util.utc_from_timestamp(stat.st_mtime), stat.st_size
 
     def _set_realtime_available(self, available: bool, err: Exception | None) -> None:
         """Log real-time feed outages once; scheduled times are used meanwhile."""

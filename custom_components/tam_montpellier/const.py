@@ -30,6 +30,13 @@ DEFAULT_VEHICLE_POSITIONS_URL: Final = (
     "https://gtfsproxy.e-tam.fr/COMMON/VehiclePosition.pb"
 )
 
+DEFAULT_URLS: Final = {
+    CONF_TRIP_UPDATES_URL: DEFAULT_TRIP_UPDATES_URL,
+    CONF_GTFS_URL: DEFAULT_GTFS_URL,
+    CONF_ALERTS_URL: DEFAULT_ALERTS_URL,
+    CONF_VEHICLE_POSITIONS_URL: DEFAULT_VEHICLE_POSITIONS_URL,
+}
+
 # GTFS route_type 0 = tram / light rail.
 TRAM_ROUTE_TYPE: Final = "0"
 # GTFS route_type 3 = bus.

@@ -34,7 +34,6 @@ from homeassistant.helpers.selector import (
 )
 
 from .const import (
-    CONF_ALERTS_URL,
     CONF_DIRECTION_ID,
     CONF_EXTRA_ROUTES,
     CONF_GTFS_URL,
@@ -42,11 +41,7 @@ from .const import (
     CONF_ROUTE_ID,
     CONF_STOP_ID,
     CONF_TRIP_UPDATES_URL,
-    CONF_VEHICLE_POSITIONS_URL,
-    DEFAULT_ALERTS_URL,
-    DEFAULT_GTFS_URL,
-    DEFAULT_TRIP_UPDATES_URL,
-    DEFAULT_VEHICLE_POSITIONS_URL,
+    DEFAULT_URLS,
     DOMAIN,
     REQUEST_TIMEOUT,
     SUBENTRY_TYPE_STOP,
@@ -60,12 +55,6 @@ _URL_SELECTOR = TextSelector(TextSelectorConfig(type=TextSelectorType.URL))
 # The data source addresses, folded in a section: the defaults are right
 # unless the operator moves its feeds.
 SECTION_ADVANCED = "advanced"
-DEFAULT_URLS: dict[str, str] = {
-    CONF_TRIP_UPDATES_URL: DEFAULT_TRIP_UPDATES_URL,
-    CONF_GTFS_URL: DEFAULT_GTFS_URL,
-    CONF_ALERTS_URL: DEFAULT_ALERTS_URL,
-    CONF_VEHICLE_POSITIONS_URL: DEFAULT_VEHICLE_POSITIONS_URL,
-}
 # First bytes of a zip archive.
 _ZIP_SIGNATURE = b"PK\x03\x04"
 
