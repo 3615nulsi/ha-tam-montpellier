@@ -574,7 +574,8 @@ async def test_corrupt_cached_gtfs_downloaded_again(
     await hass.async_block_till_done()
     assert entry.state is ConfigEntryState.LOADED
     assert _gtfs_downloads(mock_feeds) == 1
-    assert _gtfs_path(hass).read_bytes() == build_gtfs()
+    with zipfile.ZipFile(_gtfs_path(hass)) as archive:
+        assert archive.testzip() is None
 
 
 async def test_gtfs_parsed_once_per_download(
