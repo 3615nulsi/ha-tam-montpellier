@@ -547,7 +547,7 @@ def parse_static(
                 ]
 
     starts = {trip_id: start[2] for trip_id, start in trip_starts.items()}
-    return StaticData(
+    data = StaticData(
         timezone=timezone,
         routes=routes,
         stop_names=stop_names,
@@ -568,6 +568,8 @@ def parse_static(
         other_routes=other_routes,
         previous_trips=_previous_trips(trips, blocks, starts),
     )
+    # Needed above to chain the blocks, then a third of the memory for nothing.
+    return _without_inactive_copies(data)
 
 
 _ACTIVE_COPY = re.compile(r"^U_(\d+)-\d+$")
@@ -625,7 +627,7 @@ def _previous_trips(
 
 
 # Bump when the parsing changes without changing the fields of StaticData.
-_CACHE_VERSION = 5
+_CACHE_VERSION = 6
 
 
 def load_static(
