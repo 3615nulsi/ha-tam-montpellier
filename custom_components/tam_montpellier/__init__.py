@@ -33,20 +33,34 @@ CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 CARD_URL = f"/{DOMAIN}/tam-board-card.js"
 CARD_PATH = Path(__file__).parent / "frontend" / "tam-board-card.js"
 
+# Set once the card is loaded as an extra module, which cannot be undone.
+_EXTRA_MODULE_LOADED = f"{DOMAIN}_card_extra_module"
+
 
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
-    """Serve the departure board card and load it in the frontend."""
+    """Serve the departure board card."""
     await hass.http.async_register_static_paths(
         [StaticPathConfig(CARD_URL, str(CARD_PATH), cache_headers=True)]
     )
+    return True
+
+
+async def _async_load_card(hass: HomeAssistant) -> None:
+    """Load the card in the frontend.
+
+    Done with each setup of the entry, not once per start of Home Assistant:
+    the resource is removed with the integration, and must come back when the
+    integration is added again.
+    """
     # The card is cached by browsers and apps; the version in its URL makes
     # them fetch the new one when the integration is updated.
     integration = await async_get_integration(hass, DOMAIN)
     url = f"{CARD_URL}?v={integration.version}"
-    declared = await _async_declare_card(hass, url)
-    if not declared and "frontend" in hass.config.components:
+    if await _async_declare_card(hass, url):
+        return
+    if "frontend" in hass.config.components and not hass.data.get(_EXTRA_MODULE_LOADED):
         add_extra_js_url(hass, url)
-    return True
+        hass.data[_EXTRA_MODULE_LOADED] = True
 
 
 async def _async_declare_card(hass: HomeAssistant, url: str) -> bool:
@@ -104,6 +118,7 @@ def _card_resources(resources: ResourceStorageCollection) -> list[dict[str, Any]
 
 async def async_setup_entry(hass: HomeAssistant, entry: TamConfigEntry) -> bool:
     """Set up TaM Montpellier from a config entry."""
+    await _async_load_card(hass)
     coordinator = TamCoordinator(hass, entry)
     try:
         await _async_load_static(coordinator)
@@ -167,7 +182,15 @@ async def async_unload_entry(hass: HomeAssistant, entry: TamConfigEntry) -> bool
 
 async def async_remove_entry(hass: HomeAssistant, entry: TamConfigEntry) -> None:
     """Remove the card from the dashboard resources with the integration."""
-    if (resources := await _async_stored_resources(hass)) is None:
-        return
-    for item in _card_resources(resources):
-        await resources.async_delete_item(item["id"])
+    try:
+        if (resources := await _async_stored_resources(hass)) is None:
+            return
+        for item in _card_resources(resources):
+            await resources.async_delete_item(item["id"])
+    except Exception:
+        # The resources API is internal to Home Assistant: should it change,
+        # the integration must still be removable.
+        _LOGGER.warning(
+            "Could not remove the TaM card from the dashboard resources",
+            exc_info=True,
+        )
