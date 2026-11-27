@@ -573,6 +573,31 @@ def parse_static(
 _ACTIVE_COPY = re.compile(r"^U_(\d+)-\d+$")
 
 
+def _without_inactive_copies(data: StaticData) -> StaticData:
+    """Drop the inactive copies of the trips once the blocks are chained.
+
+    The real-time feed only names the active copies (``U_1583466978-10``);
+    the inactive ones (``1583466978``) are only needed to read the blocks,
+    which ``previous_trips`` already holds.
+    """
+    inactive = {
+        match.group(1)
+        for trip_id in data.trips
+        if (match := _ACTIVE_COPY.match(trip_id))
+    }
+    if not inactive:
+        return data
+    return replace(
+        data,
+        trips={k: v for k, v in data.trips.items() if k not in inactive},
+        trip_starts={k: v for k, v in data.trip_starts.items() if k not in inactive},
+        trip_ends={k: v for k, v in data.trip_ends.items() if k not in inactive},
+        previous_trips={
+            k: v for k, v in data.previous_trips.items() if k not in inactive
+        },
+    )
+
+
 def _previous_trips(
     trips: dict[str, TripInfo], blocks: dict[str, str], starts: dict[str, int]
 ) -> dict[str, str]:
