@@ -113,6 +113,19 @@ def _gtfs_without(name: str) -> bytes:
     return buffer.getvalue()
 
 
+def _gtfs_with_line_2() -> bytes:
+    """Return the synthetic GTFS archive with a second tram line."""
+    source = zipfile.ZipFile(io.BytesIO(build_gtfs()))
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as archive:
+        for info in source.infolist():
+            content = source.read(info)
+            if info.filename == "routes.txt":
+                content += b"2,2,Line two,0,TAM,FF7F00,FFFFFF\n"
+            archive.writestr(info, content)
+    return buffer.getvalue()
+
+
 def _gtfs_downloads(aioclient_mock: AiohttpClientMocker) -> int:
     return sum(str(call[1]) == DEFAULT_GTFS_URL for call in aioclient_mock.mock_calls)
 
@@ -807,6 +820,49 @@ async def test_gtfs_download_after_broken_archive_not_conditional(
     ]
     assert not request[3]
     assert entry.state is ConfigEntryState.LOADED
+
+
+async def test_new_line_reloads_entry(
+    hass: HomeAssistant,
+    mock_feeds: AiohttpClientMocker,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """A line added by the nightly archive gets its entities at once."""
+    await hass.config.async_set_time_zone("Europe/Paris")
+    freezer.move_to(paris(8, 12))
+    entry = _entry()
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    assert hass.states.get("sensor.tram_2_trams_in_service") is None
+
+    mock_feeds.clear_requests()
+    _serve_feeds(mock_feeds, gtfs=_gtfs_with_line_2())
+    freezer.move_to(paris(4, 31, day=24))
+    async_fire_time_changed(hass, fire_all=True)
+    await hass.async_block_till_done(wait_background_tasks=True)
+    assert entry.state is ConfigEntryState.LOADED
+    assert hass.states.get("sensor.tram_2_trams_in_service") is not None
+
+
+async def test_stale_line_device_removed(
+    hass: HomeAssistant,
+    mock_feeds: AiohttpClientMocker,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """The device of a line gone from the timetables is removed, not stops."""
+    freezer.move_to(paris(8, 12))
+    entry = _entry()
+    entry.add_to_hass(hass)
+    registry = dr.async_get(hass)
+    gone = registry.async_get_or_create(
+        config_entry_id=entry.entry_id, identifiers={(DOMAIN, "line_7")}
+    )
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    assert registry.async_get(gone.id) is None
+    assert registry.async_get_device({(DOMAIN, "line_1")}) is not None
+    assert registry.async_get_device({(DOMAIN, "B_1_0")}) is not None
 
 
 async def test_disruption_sensor(

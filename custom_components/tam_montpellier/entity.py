@@ -55,6 +55,14 @@ class TamStopEntity(CoordinatorEntity[TamCoordinator]):
         )
 
 
+def line_device_id(fleet_line: FleetLine) -> str:
+    """Return the device identifier of a line: "line_1", or "line_4_0"."""
+    route_id, direction_id = fleet_line
+    if direction_id is None:
+        return f"line_{route_id}"
+    return f"line_{route_id}_{direction_id}"
+
+
 class TamLineEntity(CoordinatorEntity[TamCoordinator]):
     """An entity of a tram line, each way of a circular line apart."""
 
@@ -71,12 +79,10 @@ class TamLineEntity(CoordinatorEntity[TamCoordinator]):
         super().__init__(coordinator)
         self.entity_description = description
         self._fleet_line = fleet_line
-        route_id, direction_id = fleet_line
+        route_id, _direction_id = fleet_line
         self._route = coordinator.static.routes.get(route_id)
         self._line = fleet_line_name(coordinator.static, fleet_line)
-        line_id = f"line_{route_id}"
-        if direction_id is not None:
-            line_id += f"_{direction_id}"
+        line_id = line_device_id(fleet_line)
         self._attr_unique_id = f"{line_id}_{description.key}"
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, line_id)},
