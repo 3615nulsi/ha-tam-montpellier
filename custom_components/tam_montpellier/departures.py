@@ -204,7 +204,7 @@ def compute_departures(
         for platform in platforms:
             if platform not in trip.times or platform == end:
                 continue
-            timestamp, delay = trip.times[platform]
+            timestamp, announced_delay = trip.times[platform]
             if timestamp < now_ts:
                 continue
             if static_trip is not None and static_trip.headsign:
@@ -219,7 +219,7 @@ def compute_departures(
                     route_id=route_id,
                     headsign=headsign,
                     source=DepartureSource.REALTIME,
-                    delay=delay,
+                    delay=announced_delay,
                     trip_id=trip.trip_id,
                 )
             )
@@ -238,10 +238,14 @@ def compute_departures(
         for scheduled in passages:
             if scheduled.service_id not in services:
                 continue
-            when = day_start + timedelta(seconds=scheduled.departure)
+            # GTFS times are read on the wall clock of the service day. On the
+            # night of a daylight saving change, that time is turned into an
+            # instant before any comparison: two datetimes of the same zone
+            # compare and subtract by wall clock, ignoring the change.
+            when_ts = (day_start + timedelta(seconds=scheduled.departure)).timestamp()
             source = DepartureSource.SCHEDULED
             delay: int | None = None
-            if abs(when - now) <= REALTIME_MATCH_WINDOW:
+            if abs(when_ts - now_ts) <= REALTIME_MATCH_WINDOW.total_seconds():
                 if scheduled.trip_id in realtime.canceled:
                     continue
                 if scheduled.trip_id in realtime_trips:
@@ -251,13 +255,15 @@ def compute_departures(
                         continue
                     delay = _terminus_delay(static, scheduled.trip_id, terminus, day)
                     if delay is not None:
-                        when += timedelta(seconds=delay)
+                        when_ts += delay
                         source = DepartureSource.ESTIMATED
-            if when < now:
+            if when_ts < now_ts:
                 continue
             candidates.append(
                 Departure(
-                    time=when,
+                    # Back from the instant: a time skipped in spring is shown
+                    # in summer time, the repeated hour of autumn told apart.
+                    time=datetime.fromtimestamp(when_ts, static.timezone),
                     route_id=route_id,
                     headsign=scheduled.headsign or default_headsign,
                     source=source,
@@ -266,12 +272,16 @@ def compute_departures(
                 )
             )
 
-    candidates.sort(key=lambda dep: (dep.time, _SOURCE_RANK[dep.source]))
+    candidates.sort(key=lambda dep: (dep.time.timestamp(), _SOURCE_RANK[dep.source]))
     departures: list[Departure] = []
     if vehicles:
         candidates = [_with_vehicle(static, dep, vehicles) for dep in candidates]
     for candidate in candidates:
-        if departures and candidate.time - departures[-1].time < DUPLICATE_WINDOW:
+        if (
+            departures
+            and candidate.time.timestamp() - departures[-1].time.timestamp()
+            < DUPLICATE_WINDOW.total_seconds()
+        ):
             if _SOURCE_RANK[candidate.source] < _SOURCE_RANK[departures[-1].source]:
                 departures[-1] = candidate
             continue
@@ -285,9 +295,9 @@ def _with_vehicle(
     """Name the tram of a departure, confirmed or expected from its block."""
     if (vehicle_id := vehicles.get(departure.trip_id)) is not None:
         return replace(departure, vehicle_id=vehicle_id, vehicle_confirmed=True)
-    trip_id = departure.trip_id
+    trip_id: str | None = departure.trip_id
     for _ in range(MAX_BLOCK_LOOKBACK):
-        if (trip_id := static.previous_trips.get(trip_id)) is None:
+        if (trip_id := static.previous_trips.get(trip_id or "")) is None:
             break
         if (vehicle_id := vehicles.get(trip_id)) is not None:
             return replace(departure, vehicle_id=vehicle_id)
@@ -330,3 +340,40 @@ def _terminus_delay(
     if delay is None or abs(delay) > MAX_TERMINUS_DELAY.total_seconds():
         return None
     return delay
+
+
+def service_day_bounds(
+    static: StaticData, key: StopKey, day: date
+) -> tuple[datetime, datetime] | None:
+    """Return the first and last scheduled departures of a service day at a stop.
+
+    A departure after midnight belongs to the service day of the evening
+    before, as written in the GTFS (24:30). None when nothing runs that day.
+    """
+    stop_id, route_id, direction_id = key
+    services = static.services_on(day)
+    if not services:
+        return None
+    day_start = static.service_day_start(day)
+    times = [
+        (day_start + timedelta(seconds=scheduled.departure)).timestamp()
+        for platform in static.stop_platforms(stop_id)
+        for scheduled in static.scheduled.get((platform, route_id, direction_id), ())
+        if scheduled.service_id in services
+    ]
+    if not times:
+        return None
+    return (
+        datetime.fromtimestamp(min(times), static.timezone),
+        datetime.fromtimestamp(max(times), static.timezone),
+    )
+
+
+def current_service_day(static: StaticData, key: StopKey, now: datetime) -> date:
+    """Return the service day running at a stop: the day before until its last tram."""
+    today = now.astimezone(static.timezone).date()
+    yesterday = today - timedelta(days=1)
+    bounds = service_day_bounds(static, key, yesterday)
+    if bounds is not None and bounds[1].timestamp() >= now.timestamp():
+        return yesterday
+    return today

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta
+
 from homeassistant.config_entries import ConfigSubentry
 from homeassistant.helpers.device_registry import DeviceEntryType, DeviceInfo
 from homeassistant.helpers.entity import EntityDescription
@@ -9,9 +11,18 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.util import dt as dt_util
 
 from .alerts import Alert, alerts_for
-from .const import ATTRIBUTION, DOMAIN
+from .const import (
+    ATTRIBUTION,
+    CONF_LEAVE_WINDOW,
+    CONF_WALK_MINUTES,
+    DEFAULT_LEAVE_WINDOW,
+    DOMAIN,
+)
 from .coordinator import TamCoordinator, stop_key_from_data
+from .departures import Departure
 from .fleet import FleetLine, fleet_line_name
+from .labels import line_kind
+from .leave import leave_departures
 
 
 class TamStopEntity(CoordinatorEntity[TamCoordinator]):
@@ -34,14 +45,34 @@ class TamStopEntity(CoordinatorEntity[TamCoordinator]):
         self._route = coordinator.static.routes.get(route_id)
         self._line = coordinator.static.line_name(route_id, direction_id)
         self._clockwise = coordinator.static.clockwise.get((route_id, direction_id))
+        self._stop_name = coordinator.static.stop_names.get(stop_id, stop_id)
+        self._direction = coordinator.static.direction_label(route_id, direction_id)
+        walk = subentry.data.get(CONF_WALK_MINUTES)
+        self._walk = timedelta(minutes=walk) if walk is not None else None
+        """Time walked to the stop, None when not given."""
+        self._leave_window = timedelta(
+            minutes=subentry.data.get(CONF_LEAVE_WINDOW, DEFAULT_LEAVE_WINDOW)
+        )
         self._attr_unique_id = f"{stop_id}_{route_id}_{direction_id}_{description.key}"
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, f"{stop_id}_{route_id}_{direction_id}")},
             name=subentry.title,
             manufacturer="TaM",
-            model=f"{coordinator.static.line_kind(route_id)} {self._line}",
+            model=(
+                f"{line_kind(coordinator.labels, coordinator.static, route_id)}"
+                f" {self._line}"
+            ),
             entry_type=DeviceEntryType.SERVICE,
         )
+
+    def _leave_departures(self, now: datetime) -> list[Departure]:
+        """Return the departures still within reach, at the time to leave."""
+        departures = [
+            dep
+            for dep in self.coordinator.data.get(self._stop_key, [])
+            if dep.time > now
+        ]
+        return leave_departures(departures, now, self._walk or timedelta())
 
     def _active_alerts(self) -> list[Alert]:
         """Return the alerts in effect for this stop, line and direction."""
@@ -51,6 +82,14 @@ class TamStopEntity(CoordinatorEntity[TamCoordinator]):
             dt_util.utcnow(),
             self.coordinator.static.stop_platforms(self._stop_key[0]),
         )
+
+
+def line_device_id(fleet_line: FleetLine) -> str:
+    """Return the device identifier of a line: "line_1", or "line_4_0"."""
+    route_id, direction_id = fleet_line
+    if direction_id is None:
+        return f"line_{route_id}"
+    return f"line_{route_id}_{direction_id}"
 
 
 class TamLineEntity(CoordinatorEntity[TamCoordinator]):
@@ -69,17 +108,15 @@ class TamLineEntity(CoordinatorEntity[TamCoordinator]):
         super().__init__(coordinator)
         self.entity_description = description
         self._fleet_line = fleet_line
-        route_id, direction_id = fleet_line
+        route_id, _direction_id = fleet_line
         self._route = coordinator.static.routes.get(route_id)
         self._line = fleet_line_name(coordinator.static, fleet_line)
-        line_id = f"line_{route_id}"
-        if direction_id is not None:
-            line_id += f"_{direction_id}"
+        line_id = line_device_id(fleet_line)
         self._attr_unique_id = f"{line_id}_{description.key}"
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, line_id)},
             name=f"Tram {self._line}",
             manufacturer="TaM",
-            model="Ligne de tramway",
+            model=coordinator.labels["tram_line"],
             entry_type=DeviceEntryType.SERVICE,
         )

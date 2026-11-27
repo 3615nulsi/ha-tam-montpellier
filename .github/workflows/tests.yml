@@ -10,6 +10,39 @@ permissions:
 
 jobs:
   tests:
+    name: Tests (Home Assistant ${{ matrix.homeassistant }})
+    runs-on: ubuntu-latest
+    # The latest Home Assistant warns of what the next release will break,
+    # without blocking a pull request.
+    continue-on-error: ${{ matrix.homeassistant == 'latest' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - homeassistant: pinned
+            python: "3.13"
+          - homeassistant: latest
+            python: "3.14"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Install dependencies
+        run: pip install -r requirements_test.txt ruff pytest-cov
+      - name: Upgrade to the latest Home Assistant
+        if: matrix.homeassistant == 'latest'
+        run: pip install --upgrade pytest-homeassistant-custom-component
+      - name: Lint
+        if: matrix.homeassistant == 'pinned'
+        run: ruff check . && ruff format --check .
+      - name: Run tests
+        run: python -m pytest -q --cov --cov-report=term
+      - name: Run the card tests
+        if: matrix.homeassistant == 'pinned'
+        run: node --test tests/frontend/*.test.mjs
+
+  typing:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -17,8 +50,6 @@ jobs:
         with:
           python-version: "3.13"
       - name: Install dependencies
-        run: pip install -r requirements_test.txt ruff
-      - name: Lint
-        run: ruff check . && ruff format --check .
-      - name: Run tests
-        run: python -m pytest -q
+        run: pip install -r requirements_test.txt mypy
+      - name: Check types
+        run: mypy -p custom_components.tam_montpellier

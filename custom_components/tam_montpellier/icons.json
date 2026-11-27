@@ -6,6 +6,12 @@
         "state": {
           "on": "mdi:alert"
         }
+      },
+      "time_to_leave": {
+        "default": "mdi:walk",
+        "state": {
+          "on": "mdi:run-fast"
+        }
       }
     },
     "sensor": {
@@ -29,7 +35,26 @@
       },
       "next_vehicle": {
         "default": "mdi:tram"
+      },
+      "minutes_to_leave": {
+        "default": "mdi:walk"
+      },
+      "first_departure": {
+        "default": "mdi:weather-sunset-up"
+      },
+      "last_departure": {
+        "default": "mdi:weather-night"
       }
+    },
+    "event": {
+      "new_disruption": {
+        "default": "mdi:alert-plus-outline"
+      }
+    }
+  },
+  "services": {
+    "get_departures": {
+      "service": "mdi:timetable"
     }
   }
 }

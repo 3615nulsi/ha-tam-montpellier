@@ -21,6 +21,12 @@ CONF_EXTRA_ROUTES: Final = "extra_routes"
 # disruptions), which the official app leaves out.
 CONF_INCLUDE_ADDED_TRIPS: Final = "include_added_trips"
 
+# Stop subentry, optional: minutes walked to the stop, and how long before
+# leaving the "time to leave" binary sensor turns on.
+CONF_WALK_MINUTES: Final = "walk_minutes"
+CONF_LEAVE_WINDOW: Final = "leave_window"
+DEFAULT_LEAVE_WINDOW: Final = 2
+
 SUBENTRY_TYPE_STOP: Final = "stop"
 
 DEFAULT_GTFS_URL: Final = "https://gtfsproxy.e-tam.fr/COMMON/GTFS.zip"
@@ -29,6 +35,13 @@ DEFAULT_ALERTS_URL: Final = "https://gtfsproxy.e-tam.fr/COMMON/Alert.pb"
 DEFAULT_VEHICLE_POSITIONS_URL: Final = (
     "https://gtfsproxy.e-tam.fr/COMMON/VehiclePosition.pb"
 )
+
+DEFAULT_URLS: Final = {
+    CONF_TRIP_UPDATES_URL: DEFAULT_TRIP_UPDATES_URL,
+    CONF_GTFS_URL: DEFAULT_GTFS_URL,
+    CONF_ALERTS_URL: DEFAULT_ALERTS_URL,
+    CONF_VEHICLE_POSITIONS_URL: DEFAULT_VEHICLE_POSITIONS_URL,
+}
 
 # GTFS route_type 0 = tram / light rail.
 TRAM_ROUTE_TYPE: Final = "0"
@@ -40,8 +53,12 @@ REQUEST_TIMEOUT: Final = 20
 GTFS_DOWNLOAD_TIMEOUT: Final = 180
 # The GTFS archive is regenerated daily by the operator.
 GTFS_MAX_AGE: Final = timedelta(hours=20)
+# The archive is downloaded again each night, at a time between 3:30 and
+# 4:30 that depends on the installation. TaM publishes it shortly before,
+# around 3:20 (Last-Modified of 27 November 2026: 02:18 GMT).
 GTFS_REFRESH_HOUR: Final = 3
 GTFS_REFRESH_MINUTE: Final = 30
+GTFS_REFRESH_SPREAD: Final = timedelta(hours=1)
 
 # Number of upcoming departures exposed in the sensor attributes.
 MAX_DEPARTURES: Final = 6

@@ -6,12 +6,81 @@
  * stop in the visual editor; the card finds that stop's sensors by itself.
  */
 
-const CARD_VERSION = "0.9.1";
+const CARD_VERSION = "1.0.0";
 const DOMAIN = "tam_montpellier";
+
+// Texts of the card, in French or in English after the user's language.
+const TEXTS = {
+  fr: {
+    noSensor: "Capteur introuvable",
+    clockwise: "Sens horaire",
+    anticlockwise: "Sens antihoraire",
+    towards: "Direction",
+    realtime: "Temps réel",
+    estimated: "Estimé",
+    scheduled: "Théorique",
+    inService: (n) => `${n} rame${n > 1 ? "s" : ""} en service`,
+    shortTram: "Rame courte",
+    longTram: "Rame longue",
+    planned: "prévue",
+    number: "n°",
+    noDeparture: "Pas de passage prévu",
+    soon: "Proche",
+    min: "min",
+    chooseStop: "Choisissez un arrêt (device) ou un capteur (entity)",
+    cannotShow: "Affichage impossible",
+    stops: "Arrêts",
+    name: "Nom affiché (facultatif)",
+    direction: "Direction affichée (facultatif)",
+    vehicleSize: "Longueur de rame",
+    sizeAuto: "Automatique (lignes avec des rames courtes)",
+    sizeAlways: "Toujours",
+    sizeNever: "Jamais",
+    cardName: "TaM – Afficheur de quai",
+    cardDescription: "Prochains passages d'un arrêt (tram ou bus), aux couleurs de la ligne TaM.",
+  },
+  en: {
+    noSensor: "Sensor not found",
+    clockwise: "Clockwise",
+    anticlockwise: "Anticlockwise",
+    towards: "Towards",
+    realtime: "Real time",
+    estimated: "Estimated",
+    scheduled: "Scheduled",
+    inService: (n) => `${n} tram${n > 1 ? "s" : ""} in service`,
+    shortTram: "Short tram",
+    longTram: "Long tram",
+    planned: "expected",
+    number: "no.",
+    noDeparture: "No departure scheduled",
+    soon: "Due",
+    min: "min",
+    chooseStop: "Choose a stop (device) or a sensor (entity)",
+    cannotShow: "Cannot display",
+    stops: "Stops",
+    name: "Displayed name (optional)",
+    direction: "Displayed direction (optional)",
+    vehicleSize: "Tram length",
+    sizeAuto: "Automatic (lines with short trams)",
+    sizeAlways: "Always",
+    sizeNever: "Never",
+    cardName: "TaM – Platform display",
+    cardDescription: "Next departures of a stop (tram or bus), in the TaM line colours.",
+  },
+};
+
+/** Texts in the language of Home Assistant, or of the page before it is known. */
+function texts(hass) {
+  const language = hass?.locale?.language || hass?.language
+    || globalThis.document?.documentElement?.lang || globalThis.navigator?.language || "en";
+  return String(language).toLowerCase().startsWith("fr") ? TEXTS.fr : TEXTS.en;
+}
 
 const STYLES = `
 :host { display: block; }
 ha-card { overflow: hidden; }
+.board { cursor: pointer; }
+.board + .board { border-top: 1px solid var(--divider-color); }
 .tam { text-align: left; color: var(--primary-text-color); font-family: var(--ha-font-family-body, inherit); }
 .band { position: relative; overflow: hidden; display: flex; align-items: center; gap: 12px; padding: 14px 16px; background: var(--line); color: var(--ink); }
 .motif { position: absolute; right: -6px; top: 0; height: 100%; opacity: .22; pointer-events: none; }
@@ -55,6 +124,24 @@ ha-card { overflow: hidden; }
 `;
 
 /**
+ * Role of one of the integration's entities: "minutes", "alert" or "fleet".
+ *
+ * Told by its translation key, which names do not change. Older Home
+ * Assistant versions do not give it: the attributes tell the role then.
+ */
+function entityRole(hass, entry) {
+  const key = entry.translation_key;
+  if (key !== undefined) {
+    return { minutes_to_next_departure: "minutes", alert_message: "alert", vehicles_in_service: "fleet" }[key];
+  }
+  const attributes = hass.states[entry.entity_id]?.attributes || {};
+  if (Array.isArray(attributes.vehicles)) return "fleet";
+  if ("departures" in attributes) return "minutes";
+  if ("alert_count" in attributes) return "alert";
+  return undefined;
+}
+
+/**
  * Sensors of a monitored stop, found through its device, and the sensors
  * counting the trams of each line, by line name.
  */
@@ -64,13 +151,14 @@ function stopEntities(hass, deviceId) {
     if (entry.platform !== DOMAIN) continue;
     const state = hass.states[entry.entity_id];
     if (!state) continue;
-    if (Array.isArray(state.attributes.vehicles)) {
+    const role = entityRole(hass, entry);
+    if (role === "fleet") {
       result.fleet[String(state.attributes.line)] = entry.entity_id;
       continue;
     }
     if (!deviceId || entry.device_id !== deviceId) continue;
-    if ("departures" in state.attributes) result.minutes = entry.entity_id;
-    else if ("alert_count" in state.attributes) result.alert = entry.entity_id;
+    if (role === "minutes") result.minutes = entry.entity_id;
+    else if (role === "alert") result.alert = entry.entity_id;
   }
   return result;
 }
@@ -80,10 +168,25 @@ function stopDevices(hass) {
   const ids = new Set(
     Object.values(hass.entities || {})
       .filter((entry) => entry.platform === DOMAIN && entry.device_id
-        && "departures" in (hass.states[entry.entity_id]?.attributes || {}))
+        && hass.states[entry.entity_id] && entityRole(hass, entry) === "minutes")
       .map((entry) => entry.device_id),
   );
   return [...ids].map((id) => hass.devices?.[id]).filter(Boolean);
+}
+
+/**
+ * Stop and direction of the minutes sensor.
+ *
+ * Given as attributes since version 1.0; before, read from the name of the
+ * sensor, "Comédie → Mosson (Tram 1) Minutes avant le prochain passage",
+ * which a renamed device changes.
+ */
+function stopTitle(attributes) {
+  if (attributes.stop_name !== undefined) {
+    return [attributes.stop_name, attributes.direction || ''];
+  }
+  const title = (attributes.friendly_name || '').split(/ \((?:Tram|Bus) /)[0];
+  return title.includes(' → ') ? title.split(' → ') : [title, ''];
 }
 
 // ---------------------------------------------------------------------------
@@ -247,10 +350,10 @@ function lineMotif(line, ink, bg) {
  * Way round of a circular line, drawn like a line map: a track with an arrow
  * on each side and the terminus at the bottom left.
  */
-function loopIcon(clockwise, ink, bg) {
+function loopIcon(clockwise, ink, bg, t = TEXTS.fr) {
   const arrow = (x, y, angle) =>
     `<path d="M3.9 0L-2.85 3.9V-3.9Z" fill="${ink}" transform="translate(${x} ${y}) rotate(${angle})"/>`;
-  const label = clockwise ? 'Sens horaire' : 'Sens antihoraire';
+  const label = clockwise ? t.clockwise : t.anticlockwise;
   return `<svg class="loop" viewBox="0 0 40 24" role="img" aria-label="${label}"><title>${label}</title>
     <rect x="2" y="3" width="36" height="18" rx="9" fill="none" stroke="${ink}" stroke-width="2.4"/>
     ${arrow(21, 3, clockwise ? 0 : 180)}${arrow(19, 21, clockwise ? 180 : 0)}
@@ -263,8 +366,9 @@ const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<
 const hexColor = (c, fallback) => (/^#[0-9a-f]{6}$/i.test(c) ? c : fallback);
 
 function render(entity, states, hass, variables, alertEntity, fleetEntity) {
+  const t = texts(hass);
   const e = entity;
-  if (!e) return '<div class="tam empty">Capteur introuvable</div>';
+  if (!e) return `<div class="tam empty">${t.noSensor}</div>`;
   const a = e.attributes;
   const color = hexColor(a.line_color, '#005CA9');
   const ink = hexColor(a.line_text_color, '#FFFFFF');
@@ -278,9 +382,7 @@ function render(entity, states, hass, variables, alertEntity, fleetEntity) {
   let accent = color;
   if (!darkTheme && luminance > 0.62) accent = `color-mix(in srgb, ${color} 62%, #000)`;
   if (darkTheme && luminance < 0.4) accent = `color-mix(in srgb, ${color} 55%, #fff)`;
-  // "Comédie → Mosson (Tram 1) Minutes avant le prochain passage", or "(Bus 22)".
-  const title = (a.friendly_name || '').split(/ \((?:Tram|Bus) /)[0];
-  const [stopName, direction] = title.includes(' → ') ? title.split(' → ') : [title, ''];
+  const [stopName, direction] = stopTitle(a);
   const stop = variables.stop_name || stopName;
   const towards = variables.direction || direction;
   const deps = Array.isArray(a.departures) ? a.departures : [];
@@ -288,18 +390,18 @@ function render(entity, states, hass, variables, alertEntity, fleetEntity) {
   const motif = lineMotif(line, ink, color);
   // Circular lines show their way round instead of a destination.
   const way = typeof a.clockwise === 'boolean' && !variables.direction
-    ? loopIcon(a.clockwise, ink, color)
-    : `<div class="dir">Direction ${esc(towards)}</div>`;
+    ? loopIcon(a.clockwise, ink, color, t)
+    : `<div class="dir">${t.towards} ${esc(towards)}</div>`;
 
   const sources = {
-    realtime: '<span class="src live"><i></i>Temps réel</span>',
-    estimated: '<span class="src est">Estimé</span>',
-    scheduled: '<span class="src sched">Théorique</span>',
+    realtime: `<span class="src live"><i></i>${t.realtime}</span>`,
+    estimated: `<span class="src est">${t.estimated}</span>`,
+    scheduled: `<span class="src sched">${t.scheduled}</span>`,
   };
   const delay = (d) => (d.delay >= 2 ? `<span class="late">+${d.delay} min</span>` : '');
   const trams = fleetEntity ? Number(states[fleetEntity]?.state) : NaN;
   const fleet = trams > 0
-    ? `<span class="fleet">${trams} rame${trams > 1 ? 's' : ''} en service</span>`
+    ? `<span class="fleet">${t.inService(trams)}</span>`
     : '';
 
   // Tram lengths are shown where short and long trams run ("auto"): on the
@@ -310,22 +412,22 @@ function render(entity, states, hass, variables, alertEntity, fleetEntity) {
     || (sizeMode === 'auto' && (shortOnLine || deps.some((d) => d.vehicle_size === 'short')));
   const size = (d, chip) => {
     if (!showSize || !['short', 'long'].includes(d.vehicle_size)) return '';
-    const label = d.vehicle_size === 'short' ? 'Rame courte' : 'Rame longue';
+    const label = d.vehicle_size === 'short' ? t.shortTram : t.longTram;
     const planned = !d.vehicle_confirmed;
-    const title = d.vehicle_model ? ` title="${esc(d.vehicle_model)} n° ${esc(d.vehicle)}"` : '';
+    const title = d.vehicle_model ? ` title="${esc(d.vehicle_model)} ${t.number} ${esc(d.vehicle)}"` : '';
     // No room for "prévue" in a chip: the italics tell it.
-    return `<span class="size${planned ? ' planned' : ''}"${title}>${label}${planned && !chip ? ' prévue' : ''}</span>`;
+    return `<span class="size${planned ? ' planned' : ''}"${title}>${label}${planned && !chip ? ` ${t.planned}` : ''}</span>`;
   };
 
   let next;
   const first = deps[0];
   if (!first || e.state === 'unknown' || e.state === 'unavailable') {
-    next = '<div class="none">Pas de passage prévu</div>';
+    next = `<div class="none">${t.noDeparture}</div>`;
   } else {
     const minutes = Number(e.state);
     const count = minutes < 1
-      ? '<div class="count soon">Proche</div>'
-      : `<div class="count"><b>${minutes}</b><span>min</span></div>`;
+      ? `<div class="count soon">${t.soon}</div>`
+      : `<div class="count"><b>${minutes}</b><span>${t.min}</span></div>`;
     next = `<div class="next">${count}<div class="info">
         <div class="dest">${esc(first.destination)}</div>
         <div class="meta">${sources[first.source] || ''}${delay(first)}${size(first, false)}${fleet}</div>
@@ -333,7 +435,7 @@ function render(entity, states, hass, variables, alertEntity, fleetEntity) {
   }
 
   const chips = deps.slice(1, 5).map((d) => `<div class="chip${d.source === 'scheduled' ? ' sched' : ''}">
-      <b>${d.minutes < 1 ? 'Proche' : d.minutes + '<small>min</small>'}</b>
+      <b>${d.minutes < 1 ? t.soon : `${d.minutes}<small>${t.min}</small>`}</b>
       <span>${esc(d.destination)}</span>${size(d, true)}</div>`).join('');
 
   const alertState = alertEntity ? states[alertEntity] : undefined;
@@ -354,10 +456,45 @@ function render(entity, states, hass, variables, alertEntity, fleetEntity) {
 
 }
 
+/** Stop devices shown by a card: "devices", or the single "device" or "entity". */
+function configDevices(config, hass) {
+  if (Array.isArray(config.devices) && config.devices.length) return config.devices;
+  return [config.device || hass.entities?.[config.entity]?.device_id];
+}
+
+/**
+ * Entities of each stop shown by a card. The explicit "entity" and
+ * "alert_entity" of a single-stop card take precedence over those found.
+ */
+function stopBlocks(hass, config) {
+  const devices = configDevices(config, hass);
+  const single = devices.length === 1;
+  return devices.map((deviceId) => {
+    const found = stopEntities(hass, deviceId);
+    const minutes = (single && config.entity) || found.minutes;
+    const alert = (single && config.alert_entity) || found.alert;
+    const entity = minutes ? hass.states[minutes] : undefined;
+    const fleet = entity ? found.fleet[String(entity.attributes.line)] : undefined;
+    return { minutes, alert, fleet, entity };
+  });
+}
+
+/** HTML of a card: one board per stop, the overrides only for a single one. */
+function renderCard(blocks, hass, config) {
+  const single = blocks.length === 1;
+  const variables = {
+    stop_name: single ? config.name : undefined,
+    direction: single ? config.direction : undefined,
+    vehicle_size: config.vehicle_size,
+  };
+  return blocks.map((block) => `<div class="board" data-entity="${esc(block.minutes || '')}">${
+    render(block.entity, hass.states, hass, variables, block.alert, block.fleet)}</div>`).join("");
+}
+
 class TamBoardCard extends HTMLElement {
   setConfig(config) {
-    if (!config.device && !config.entity) {
-      throw new Error("Choisissez un arrêt (device) ou un capteur (entity)");
+    if (!config.device && !config.entity && !(Array.isArray(config.devices) && config.devices.length)) {
+      throw new Error(texts(this._hass).chooseStop);
     }
     this._config = config;
     this._signature = undefined;
@@ -367,27 +504,25 @@ class TamBoardCard extends HTMLElement {
     this._hass = hass;
     if (!this._config) return;
     try {
-      let minutes = this._config.entity;
-      let alert = this._config.alert_entity;
-      const deviceId = this._config.device || hass.entities?.[minutes]?.device_id;
-      const found = stopEntities(hass, deviceId);
-      minutes = minutes || found.minutes;
-      alert = alert || found.alert;
-      const entity = minutes ? hass.states[minutes] : undefined;
-      const fleet = entity ? found.fleet[String(entity.attributes.line)] : undefined;
-      const alertState = alert ? hass.states[alert] : undefined;
-      const fleetState = fleet ? hass.states[fleet] : undefined;
-      const signature = [entity?.last_updated, alertState?.last_updated, fleetState?.state, hass.themes?.darkMode].join("|");
+      const blocks = stopBlocks(hass, this._config);
+      const signature = [
+        ...blocks.flatMap((block) => [
+          block.entity?.last_updated,
+          block.alert ? hass.states[block.alert]?.last_updated : undefined,
+          block.fleet ? hass.states[block.fleet]?.state : undefined,
+        ]),
+        hass.themes?.darkMode,
+      ].join("|");
       if (signature === this._signature) return;
       this._signature = signature;
-      this._minutes = minutes;
-      this._render(entity, alert, fleet);
+      this._blocks = blocks.length;
+      this._card().innerHTML = renderCard(blocks, hass, this._config);
     } catch (err) {
       // Thrown from here, Home Assistant would swap the card for "Erreur de
       // configuration" for good: show the error and retry at the next update.
       console.error("tam-board-card", err);
       this._signature = undefined;
-      this._card().innerHTML = `<div class="none">Affichage impossible : ${esc(err?.message)}</div>`;
+      this._card().innerHTML = `<div class="none">${texts(hass).cannotShow} : ${esc(err?.message)}</div>`;
     }
   }
 
@@ -396,22 +531,19 @@ class TamBoardCard extends HTMLElement {
     if (!this.shadowRoot) {
       this.attachShadow({ mode: "open" });
       this.shadowRoot.innerHTML = `<style>${STYLES}</style><ha-card></ha-card>`;
-      this.shadowRoot.querySelector("ha-card").addEventListener("click", () => {
-        if (!this._minutes) return;
+      // A click on a board opens the details of its stop.
+      this.shadowRoot.querySelector("ha-card").addEventListener("click", (ev) => {
+        const entityId = ev.target.closest?.(".board")?.dataset.entity;
+        if (!entityId) return;
         this.dispatchEvent(new CustomEvent("hass-more-info", {
-          bubbles: true, composed: true, detail: { entityId: this._minutes },
+          bubbles: true, composed: true, detail: { entityId },
         }));
       });
     }
     return this.shadowRoot.querySelector("ha-card");
   }
 
-  _render(entity, alert, fleet) {
-    const variables = { stop_name: this._config.name, direction: this._config.direction, vehicle_size: this._config.vehicle_size };
-    this._card().innerHTML = render(entity, this._hass.states, this._hass, variables, alert, fleet);
-  }
-
-  getCardSize() { return 4; }
+  getCardSize() { return 4 * (this._blocks || 1); }
 
   getGridOptions() { return { columns: 12, rows: "auto", min_columns: 6 }; }
 
@@ -438,36 +570,59 @@ class TamBoardCardEditor extends HTMLElement {
     if (!this._hass || !this._config) return;
     if (!this._form) {
       this._form = document.createElement("ha-form");
-      this._form.computeLabel = (schema) => ({
-        device: "Arrêt",
-        name: "Nom affiché (facultatif)",
-        direction: "Direction affichée (facultatif)",
-        vehicle_size: "Longueur de rame",
-      })[schema.name];
+      this._form.computeLabel = (schema) => {
+        const t = texts(this._hass);
+        return { devices: t.stops, name: t.name, direction: t.direction, vehicle_size: t.vehicleSize }[schema.name];
+      };
       this._form.addEventListener("value-changed", (ev) => {
-        const config = { ...this._config, ...ev.detail.value };
-        for (const key of ["name", "direction"]) if (!config[key]) delete config[key];
-        if (config.vehicle_size === "auto") delete config.vehicle_size;
         this.dispatchEvent(new CustomEvent("config-changed", {
-          bubbles: true, composed: true, detail: { config },
+          bubbles: true, composed: true, detail: { config: editedConfig(this._config, ev.detail.value) },
         }));
       });
       this.appendChild(this._form);
     }
+    const t = texts(this._hass);
+    const devices = configDevices(this._config, this._hass).filter(Boolean);
     this._form.hass = this._hass;
-    this._form.data = { vehicle_size: "auto", ...this._config };
+    this._form.data = { vehicle_size: "auto", ...this._config, devices };
     this._form.schema = [
       // Stops have a disruption binary sensor, lines do not.
-      { name: "device", required: true, selector: { device: { integration: DOMAIN, entity: { domain: "binary_sensor" } } } },
-      { name: "name", selector: { text: {} } },
-      { name: "direction", selector: { text: {} } },
+      { name: "devices", required: true, selector: { device: { multiple: true, integration: DOMAIN, entity: { domain: "binary_sensor" } } } },
+      // The displayed name and direction only make sense for a single stop.
+      ...(devices.length > 1 ? [] : [
+        { name: "name", selector: { text: {} } },
+        { name: "direction", selector: { text: {} } },
+      ]),
       { name: "vehicle_size", selector: { select: { mode: "dropdown", options: [
-        { value: "auto", label: "Automatique (lignes avec des rames courtes)" },
-        { value: "always", label: "Toujours" },
-        { value: "never", label: "Jamais" },
+        { value: "auto", label: t.sizeAuto },
+        { value: "always", label: t.sizeAlways },
+        { value: "never", label: t.sizeNever },
       ] } } },
     ];
   }
+}
+
+/**
+ * Card configuration after an edit: a single stop is kept as "device", as
+ * before several stops could be shown, so that older versions still read it.
+ */
+function editedConfig(config, value) {
+  const edited = { ...config, ...value };
+  const devices = (edited.devices || []).filter(Boolean);
+  delete edited.devices;
+  delete edited.device;
+  if (devices.length > 1) {
+    edited.devices = devices;
+    delete edited.name;
+    delete edited.direction;
+    delete edited.entity;
+    delete edited.alert_entity;
+  } else {
+    edited.device = devices[0] || "";
+  }
+  for (const key of ["name", "direction"]) if (!edited[key]) delete edited[key];
+  if (edited.vehicle_size === "auto") delete edited.vehicle_size;
+  return edited;
 }
 
 /**
@@ -503,8 +658,8 @@ if (!customElements.get("tam-board-card")) {
   window.customCards = window.customCards || [];
   window.customCards.push({
     type: "tam-board-card",
-    name: "TaM – Afficheur de quai",
-    description: "Prochains passages d'un arrêt (tram ou bus), aux couleurs de la ligne TaM.",
+    name: texts().cardName,
+    description: texts().cardDescription,
     preview: true,
     documentationURL: "https://github.com/3615nulsi/ha-tam-montpellier",
   });

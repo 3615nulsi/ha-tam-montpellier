@@ -1,6 +1,6 @@
 [project]
 name = "ha-tam-montpellier"
-version = "0.9.1"
+version = "1.0.0"
 description = "Home Assistant integration for the Montpellier tramway (TaM) real-time departures"
 requires-python = ">=3.13"
 
@@ -19,3 +19,22 @@ select = ["E", "F", "W", "I", "UP", "B", "SIM", "RUF"]
 force-sort-within-sections = true
 known-first-party = ["homeassistant", "custom_components", "tests"]
 combine-as-imports = true
+
+[tool.mypy]
+python_version = "3.13"
+strict = true
+warn_unreachable = true
+
+[[tool.mypy.overrides]]
+# Generated protobuf code, without type hints.
+module = ["google.transit.*", "google.protobuf.*"]
+ignore_missing_imports = true
+
+[tool.coverage.run]
+source = ["custom_components.tam_montpellier"]
+branch = true
+
+[tool.coverage.report]
+fail_under = 95
+show_missing = true
+skip_covered = true

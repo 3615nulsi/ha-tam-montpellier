@@ -3,28 +3,53 @@
     "step": {
       "user": {
         "title": "TaM Montpellier",
-        "description": "Horaires en temps réel du tramway de Montpellier (open data TaM, licence ODbL). Les adresses par défaut conviennent ; elles ne sont à modifier que si l'opérateur les change.\n\nUne fois l'intégration ajoutée, utilisez « Ajouter un arrêt » pour choisir les arrêts à suivre.",
-        "data": {
-          "trip_updates_url": "Flux temps réel (GTFS-RT TripUpdate)",
-          "gtfs_url": "Horaires théoriques (GTFS)",
-          "alerts_url": "Alertes trafic (GTFS-RT Alert)",
-          "vehicle_positions_url": "Positions des rames (GTFS-RT VehiclePosition)"
+        "description": "Horaires en temps réel du tramway de Montpellier (open data TaM, licence ODbL).\n\nUne fois l'intégration ajoutée, utilisez « Ajouter un arrêt » pour choisir les arrêts à suivre.",
+        "sections": {
+          "advanced": {
+            "name": "Avancé : sources de données",
+            "description": "Les adresses par défaut conviennent ; elles ne sont à modifier que si l'opérateur les change.",
+            "data": {
+              "trip_updates_url": "Flux temps réel (GTFS-RT TripUpdate)",
+              "gtfs_url": "Horaires théoriques (GTFS)",
+              "alerts_url": "Alertes trafic (GTFS-RT Alert)",
+              "vehicle_positions_url": "Positions des rames (GTFS-RT VehiclePosition)"
+            }
+          }
+        }
+      },
+      "reconfigure": {
+        "title": "Sources de données TaM",
+        "description": "Modifiez les adresses des flux TaM. Les arrêts suivis sont conservés.",
+        "sections": {
+          "advanced": {
+            "name": "Sources de données",
+            "data": {
+              "trip_updates_url": "Flux temps réel (GTFS-RT TripUpdate)",
+              "gtfs_url": "Horaires théoriques (GTFS)",
+              "alerts_url": "Alertes trafic (GTFS-RT Alert)",
+              "vehicle_positions_url": "Positions des rames (GTFS-RT VehiclePosition)"
+            }
+          }
         }
       }
     },
     "error": {
       "cannot_connect": "Impossible de joindre le flux temps réel.",
-      "invalid_feed": "La réponse n'est pas un flux GTFS-RT valide."
+      "invalid_feed": "L'adresse du flux temps réel ne renvoie pas un flux GTFS-RT valide.",
+      "gtfs_cannot_connect": "Impossible de joindre les horaires théoriques (GTFS).",
+      "invalid_gtfs": "L'adresse des horaires théoriques ne renvoie pas une archive GTFS (zip)."
     },
     "abort": {
-      "single_instance_allowed": "L'intégration est déjà configurée. Ajoutez des arrêts depuis sa page."
+      "single_instance_allowed": "L'intégration est déjà configurée. Ajoutez des arrêts depuis sa page.",
+      "reconfigure_successful": "Les sources de données sont mises à jour."
     }
   },
   "config_subentries": {
     "stop": {
       "entry_type": "Arrêt",
       "initiate_flow": {
-        "user": "Ajouter un arrêt"
+        "user": "Ajouter un arrêt",
+        "reconfigure": "Trajet à pied jusqu'à l'arrêt"
       },
       "step": {
         "user": {
@@ -44,13 +69,31 @@
           "title": "Choisir l'arrêt",
           "description": "{line} vers {direction}.",
           "data": {
-            "stop_id": "Arrêt"
+            "stop_id": "Arrêt",
+            "walk_minutes": "Trajet à pied jusqu'à l'arrêt (min)",
+            "leave_window": "Prévenir avant de partir (min)"
+          },
+          "data_description": {
+            "walk_minutes": "Facultatif. Ajoute un capteur « Minutes avant de partir » et un capteur binaire « Il faut partir ».",
+            "leave_window": "Combien de temps avant le départ « Il faut partir » s'allume (2 min si vide)."
+          }
+        },
+        "reconfigure": {
+          "title": "Trajet à pied jusqu'à l'arrêt",
+          "description": "{stop} : temps de marche jusqu'à l'arrêt. Laissez vide pour retirer les entités « Il faut partir ».",
+          "data": {
+            "walk_minutes": "Trajet à pied jusqu'à l'arrêt (min)",
+            "leave_window": "Prévenir avant de partir (min)"
+          },
+          "data_description": {
+            "leave_window": "Combien de temps avant le départ « Il faut partir » s'allume."
           }
         }
       },
       "abort": {
         "already_configured": "Cet arrêt est déjà suivi pour cette ligne et cette direction.",
-        "entry_not_loaded": "L'intégration n'est pas chargée : impossible de lister les arrêts."
+        "entry_not_loaded": "L'intégration n'est pas chargée : impossible de lister les arrêts.",
+        "reconfigure_successful": "L'arrêt est mis à jour."
       }
     }
   },
@@ -67,6 +110,20 @@
           },
           "alerts": {
             "name": "Alertes"
+          }
+        }
+      },
+      "time_to_leave": {
+        "name": "Il faut partir",
+        "state_attributes": {
+          "line": {
+            "name": "Ligne"
+          },
+          "leave_at": {
+            "name": "Partir à"
+          },
+          "window_minutes": {
+            "name": "Fenêtre (min)"
           }
         }
       }
@@ -272,6 +329,12 @@
           },
           "vehicle_confirmed": {
             "name": "Confirmée"
+          },
+          "stop_name": {
+            "name": "Arrêt"
+          },
+          "direction": {
+            "name": "Direction"
           }
         }
       },
@@ -368,12 +431,80 @@
             "name": "Rames courtes en service"
           }
         }
+      },
+      "minutes_to_leave": {
+        "name": "Minutes avant de partir",
+        "state_attributes": {
+          "line": {
+            "name": "Ligne"
+          },
+          "line_color": {
+            "name": "Couleur de la ligne"
+          },
+          "line_text_color": {
+            "name": "Couleur du texte"
+          },
+          "walk_minutes": {
+            "name": "Marche (min)"
+          },
+          "leave_at": {
+            "name": "Partir à"
+          },
+          "departure": {
+            "name": "Passage"
+          },
+          "destination": {
+            "name": "Destination"
+          }
+        }
+      },
+      "first_departure": {
+        "name": "Premier passage du jour"
+      },
+      "last_departure": {
+        "name": "Dernier passage du jour"
+      }
+    },
+    "event": {
+      "new_disruption": {
+        "name": "Nouvelle perturbation",
+        "state_attributes": {
+          "event_type": {
+            "state": {
+              "new_alert": "Nouvelle alerte"
+            }
+          },
+          "line": {
+            "name": "Ligne"
+          },
+          "title": {
+            "name": "Titre"
+          },
+          "message": {
+            "name": "Message"
+          },
+          "end": {
+            "name": "Fin prévue"
+          },
+          "url": {
+            "name": "Lien"
+          }
+        }
       }
     }
   },
   "exceptions": {
     "gtfs_unavailable": {
       "message": "Impossible de charger les horaires théoriques TaM : {error}"
+    },
+    "not_loaded": {
+      "message": "L'intégration TaM Montpellier n'est pas chargée."
+    },
+    "stop_required": {
+      "message": "Indiquez un arrêt, ou ses identifiants d'arrêt, de ligne et de direction."
+    },
+    "stop_not_followed": {
+      "message": "Cet arrêt n'est pas suivi par l'intégration TaM Montpellier."
     }
   },
   "options": {
@@ -392,6 +523,60 @@
     },
     "abort": {
       "entry_not_loaded": "L'intégration n'est pas chargée : les lignes de bus ne peuvent pas être listées."
+    }
+  },
+  "issues": {
+    "gtfs_stale": {
+      "title": "Horaires TaM périmés",
+      "description": "Les horaires théoriques TaM (GTFS) ont été téléchargés pour la dernière fois le {date}, ou ils ne prévoient aucun passage aujourd'hui ni demain. Des passages peuvent manquer ou être faux.\n\nVérifiez que Home Assistant peut joindre l'adresse des horaires (page de l'intégration, « Reconfigurer »). L'intégration les retélécharge chaque nuit ; ce message disparaît dès qu'une archive à jour est chargée."
+    },
+    "stop_missing": {
+      "title": "Arrêt plus desservi : {stop}",
+      "description": "L'arrêt « {stop} » n'est plus dans les horaires TaM : ses capteurs n'affichent aucun passage. L'opérateur l'a peut-être renommé ou déplacé.\n\nSur la page de l'intégration, supprimez cet arrêt puis ajoutez-le à nouveau avec « Ajouter un arrêt »."
+    },
+    "route_missing": {
+      "title": "La ligne {line} n'est plus dans les horaires",
+      "description": "La ligne {line} n'est plus dans les horaires TaM. Arrêts suivis sur cette ligne : {stops}. Leurs capteurs n'affichent aucun passage.\n\nSi la ligne a changé de numéro, supprimez ces arrêts sur la page de l'intégration et ajoutez-les à nouveau sur la nouvelle ligne."
+    }
+  },
+  "services": {
+    "get_departures": {
+      "name": "Obtenir les passages",
+      "description": "Renvoie les prochains passages d'un arrêt suivi, comme les liste son capteur de minutes.",
+      "fields": {
+        "device_id": {
+          "name": "Arrêt",
+          "description": "L'arrêt suivi."
+        },
+        "count": {
+          "name": "Nombre",
+          "description": "Nombre de passages à renvoyer (1 à 20)."
+        },
+        "stop_id": {
+          "name": "Identifiant d'arrêt",
+          "description": "À la place de l'arrêt : identifiant GTFS d'un arrêt suivi."
+        },
+        "route_id": {
+          "name": "Identifiant de ligne",
+          "description": "Avec l'identifiant d'arrêt : identifiant GTFS de la ligne."
+        },
+        "direction_id": {
+          "name": "Direction",
+          "description": "Avec l'identifiant d'arrêt : sens de la ligne, 0 ou 1."
+        }
+      }
+    }
+  },
+  "selector": {
+    "labels": {
+      "options": {
+        "towards": "Vers {direction} (depuis {origin})",
+        "clockwise": "sens horaire",
+        "anticlockwise": "sens antihoraire",
+        "tram_line": "Ligne de tramway",
+        "tram": "Tram",
+        "bus": "Bus"
+      }
     }
   }
 }

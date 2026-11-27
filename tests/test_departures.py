@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 from collections import Counter
-from datetime import datetime, timedelta
+from dataclasses import replace
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -13,10 +14,13 @@ from custom_components.tam_montpellier.departures import (
     DepartureSource,
     RealtimeSnapshot,
     compute_departures,
+    current_service_day,
     parse_trip_updates,
+    service_day_bounds,
 )
 from custom_components.tam_montpellier.gtfs_static import (
     Route,
+    ScheduledStop,
     StaticData,
     _direction_label,
     parse_static,
@@ -24,6 +28,7 @@ from custom_components.tam_montpellier.gtfs_static import (
 from custom_components.tam_montpellier.sensor import (
     minutes_until,
     next_minute_change,
+    rounded_time,
 )
 
 from .conftest import PARIS, build_trip_updates, paris, trip_id
@@ -366,3 +371,122 @@ def test_next_minute_change_across_dst(departure_time, now) -> None:
     assert change - now <= timedelta(minutes=1, seconds=1)
     # At the change, the displayed count has just dropped by one.
     assert minutes_until(departure, change) == minutes_until(departure, now) - 1
+
+
+def _night_static(static: StaticData, service_day: date, *passages: int) -> StaticData:
+    """Return the static data with only night passages at B, on one service day.
+
+    ``passages`` are the scheduled departures from B, in seconds after the
+    service day reference, as in the GTFS (beyond 24 h after midnight).
+    """
+    return replace(
+        static,
+        services_by_date={service_day: frozenset({"U_07_1"})},
+        scheduled={
+            KEY_B: [
+                ScheduledStop(trip_id(7), "U_07_1", departure, "Delta")
+                for departure in passages
+            ]
+        },
+    )
+
+
+def _utc(*args: int) -> float:
+    return datetime(*args, tzinfo=UTC).timestamp()
+
+
+def test_departures_ordered_across_spring_change(static: StaticData) -> None:
+    """At the spring change, departures are ordered by instant, not wall clock.
+
+    26:10 of 28 March 2026 is 02:10, a time skipped that night: the tram
+    leaves at 03:10 summer time (01:10 UTC), after a running tram announced
+    at 03:05 (01:05 UTC).
+    """
+    night = _night_static(static, date(2026, 3, 28), 26 * 3600 + 10 * 60)
+    payload = build_trip_updates(
+        {
+            "trip_id": trip_id(2),
+            "stops": [
+                ("A", datetime(2026, 3, 29, 1, 58, tzinfo=PARIS), 0, False),
+                ("B", datetime(2026, 3, 29, 3, 5, tzinfo=PARIS), 0, False),
+            ],
+        }
+    )
+    departures = _departures(night, payload, datetime(2026, 3, 29, 1, 50, tzinfo=PARIS))
+    assert [dep.time.timestamp() for dep in departures] == [
+        _utc(2026, 3, 29, 1, 5),
+        _utc(2026, 3, 29, 1, 10),
+    ]
+    # Given in summer time, as a clock shows it.
+    assert departures[1].time.utcoffset() == timedelta(hours=2)
+
+
+def test_departed_tram_left_out_across_autumn_change(static: StaticData) -> None:
+    """In the hour played twice in autumn, a tram gone an hour ago is left out.
+
+    26:50 of 24 October 2026 is the first 02:50 (00:50 UTC). At the second
+    02:40 (01:40 UTC), that tram is gone; the 27:10 one (03:10, 02:10 UTC)
+    is the next.
+    """
+    night = _night_static(
+        static, date(2026, 10, 24), 26 * 3600 + 50 * 60, 27 * 3600 + 10 * 60
+    )
+    now = datetime(2026, 10, 25, 2, 40, fold=1, tzinfo=PARIS)
+    departures = _departures(night, None, now)
+    assert [dep.time.timestamp() for dep in departures] == [_utc(2026, 10, 25, 2, 10)]
+
+
+def test_scheduled_departure_in_repeated_hour(static: StaticData) -> None:
+    """Before the autumn change, a departure in the repeated hour is ahead."""
+    night = _night_static(static, date(2026, 10, 24), 26 * 3600 + 50 * 60)
+    now = datetime(2026, 10, 25, 1, 55, tzinfo=PARIS)
+    departures = _departures(night, None, now)
+    assert [dep.time.timestamp() for dep in departures] == [_utc(2026, 10, 25, 0, 50)]
+
+
+@pytest.mark.parametrize(
+    ("time", "expected"),
+    [
+        (paris(8, 14, 30), paris(8, 14, 30)),
+        (paris(8, 14, 37), paris(8, 14, 30)),
+        (paris(8, 14, 44), paris(8, 14, 30)),
+        (paris(8, 14, 45), paris(8, 14, 45)),
+        (paris(8, 14, 59), paris(8, 14, 45)),
+    ],
+)
+def test_time_state_rounded(time: datetime, expected: datetime) -> None:
+    """Times are given by steps of 15 seconds, rounded down."""
+    departure = Departure(
+        time=time,
+        route_id="1",
+        headsign="Delta",
+        source=DepartureSource.REALTIME,
+        delay=None,
+        trip_id="t",
+    )
+    assert rounded_time(departure, paris(8, 0)) == expected
+    # The minutes keep the exact time.
+    assert minutes_until(departure, time - timedelta(minutes=2)) == 2
+
+
+def test_service_day_bounds(static: StaticData) -> None:
+    """The last tram after midnight belongs to the service day before."""
+    assert service_day_bounds(static, KEY_B, date(2026, 9, 23)) == (
+        paris(8, 3),
+        paris(0, 33, day=24),
+    )
+    assert service_day_bounds(static, KEY_B, date(2026, 9, 24)) is None
+
+
+@pytest.mark.parametrize(
+    ("now", "day"),
+    [
+        (paris(8, 12), date(2026, 9, 23)),
+        (paris(0, 10, day=24), date(2026, 9, 23)),
+        (paris(0, 33, day=24), date(2026, 9, 23)),
+        (paris(1, 0, day=24), date(2026, 9, 24)),
+    ],
+)
+def test_current_service_day(static: StaticData, now: datetime, day: date) -> None:
+    """The service day runs until its last tram, past midnight."""
+    assert current_service_day(static, KEY_B, now) == day

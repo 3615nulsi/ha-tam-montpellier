@@ -3,28 +3,53 @@
     "step": {
       "user": {
         "title": "TaM Montpellier",
-        "description": "Real-time departures of the Montpellier tramway (TaM open data, ODbL licence). The default addresses are fine; only change them if the operator moves the feeds.\n\nOnce the integration is added, use \"Add stop\" to pick the stops to follow.",
-        "data": {
-          "trip_updates_url": "Real-time feed (GTFS-RT TripUpdate)",
-          "gtfs_url": "Timetables (GTFS)",
-          "alerts_url": "Service alerts (GTFS-RT Alert)",
-          "vehicle_positions_url": "Vehicle positions (GTFS-RT VehiclePosition)"
+        "description": "Real-time departures of the Montpellier tramway (TaM open data, ODbL licence).\n\nOnce the integration is added, use \"Add stop\" to pick the stops to follow.",
+        "sections": {
+          "advanced": {
+            "name": "Advanced: data sources",
+            "description": "The default addresses are fine; only change them if the operator moves the feeds.",
+            "data": {
+              "trip_updates_url": "Real-time feed (GTFS-RT TripUpdate)",
+              "gtfs_url": "Timetables (GTFS)",
+              "alerts_url": "Service alerts (GTFS-RT Alert)",
+              "vehicle_positions_url": "Vehicle positions (GTFS-RT VehiclePosition)"
+            }
+          }
+        }
+      },
+      "reconfigure": {
+        "title": "TaM data sources",
+        "description": "Change the addresses of the TaM feeds. The followed stops are kept.",
+        "sections": {
+          "advanced": {
+            "name": "Data sources",
+            "data": {
+              "trip_updates_url": "Real-time feed (GTFS-RT TripUpdate)",
+              "gtfs_url": "Timetables (GTFS)",
+              "alerts_url": "Service alerts (GTFS-RT Alert)",
+              "vehicle_positions_url": "Vehicle positions (GTFS-RT VehiclePosition)"
+            }
+          }
         }
       }
     },
     "error": {
       "cannot_connect": "Unable to reach the real-time feed.",
-      "invalid_feed": "The response is not a valid GTFS-RT feed."
+      "invalid_feed": "The real-time feed address does not return a valid GTFS-RT feed.",
+      "gtfs_cannot_connect": "Unable to reach the timetables (GTFS).",
+      "invalid_gtfs": "The timetables address does not return a GTFS archive (zip)."
     },
     "abort": {
-      "single_instance_allowed": "The integration is already configured. Add stops from its page."
+      "single_instance_allowed": "The integration is already configured. Add stops from its page.",
+      "reconfigure_successful": "The data sources are updated."
     }
   },
   "config_subentries": {
     "stop": {
       "entry_type": "Stop",
       "initiate_flow": {
-        "user": "Add stop"
+        "user": "Add stop",
+        "reconfigure": "Walk to the stop"
       },
       "step": {
         "user": {
@@ -44,13 +69,31 @@
           "title": "Select the stop",
           "description": "{line} towards {direction}.",
           "data": {
-            "stop_id": "Stop"
+            "stop_id": "Stop",
+            "walk_minutes": "Walk to the stop (min)",
+            "leave_window": "Warn before leaving (min)"
+          },
+          "data_description": {
+            "walk_minutes": "Optional. Adds a \"minutes before leaving\" sensor and a \"time to leave\" binary sensor.",
+            "leave_window": "How long before leaving \"time to leave\" turns on (2 min if empty)."
+          }
+        },
+        "reconfigure": {
+          "title": "Walk to the stop",
+          "description": "{stop}: time walked to the stop. Leave it empty to remove the \"time to leave\" entities.",
+          "data": {
+            "walk_minutes": "Walk to the stop (min)",
+            "leave_window": "Warn before leaving (min)"
+          },
+          "data_description": {
+            "leave_window": "How long before leaving \"time to leave\" turns on."
           }
         }
       },
       "abort": {
         "already_configured": "This stop is already followed for this line and direction.",
-        "entry_not_loaded": "The integration is not loaded: stops cannot be listed."
+        "entry_not_loaded": "The integration is not loaded: stops cannot be listed.",
+        "reconfigure_successful": "The stop is updated."
       }
     }
   },
@@ -67,6 +110,20 @@
           },
           "alerts": {
             "name": "Alerts"
+          }
+        }
+      },
+      "time_to_leave": {
+        "name": "Time to leave",
+        "state_attributes": {
+          "line": {
+            "name": "Line"
+          },
+          "leave_at": {
+            "name": "Leave at"
+          },
+          "window_minutes": {
+            "name": "Window (min)"
           }
         }
       }
@@ -272,6 +329,12 @@
           },
           "vehicle_confirmed": {
             "name": "Confirmed"
+          },
+          "stop_name": {
+            "name": "Stop"
+          },
+          "direction": {
+            "name": "Direction"
           }
         }
       },
@@ -368,12 +431,80 @@
             "name": "Short trams in service"
           }
         }
+      },
+      "minutes_to_leave": {
+        "name": "Minutes before leaving",
+        "state_attributes": {
+          "line": {
+            "name": "Line"
+          },
+          "line_color": {
+            "name": "Line color"
+          },
+          "line_text_color": {
+            "name": "Text color"
+          },
+          "walk_minutes": {
+            "name": "Walk (min)"
+          },
+          "leave_at": {
+            "name": "Leave at"
+          },
+          "departure": {
+            "name": "Departure"
+          },
+          "destination": {
+            "name": "Destination"
+          }
+        }
+      },
+      "first_departure": {
+        "name": "First departure of the day"
+      },
+      "last_departure": {
+        "name": "Last departure of the day"
+      }
+    },
+    "event": {
+      "new_disruption": {
+        "name": "New disruption",
+        "state_attributes": {
+          "event_type": {
+            "state": {
+              "new_alert": "New alert"
+            }
+          },
+          "line": {
+            "name": "Line"
+          },
+          "title": {
+            "name": "Title"
+          },
+          "message": {
+            "name": "Message"
+          },
+          "end": {
+            "name": "Expected end"
+          },
+          "url": {
+            "name": "Link"
+          }
+        }
       }
     }
   },
   "exceptions": {
     "gtfs_unavailable": {
       "message": "Unable to load the TaM timetables: {error}"
+    },
+    "not_loaded": {
+      "message": "The TaM Montpellier integration is not loaded."
+    },
+    "stop_required": {
+      "message": "Give a stop, or its stop, line and direction ids."
+    },
+    "stop_not_followed": {
+      "message": "This stop is not followed by the TaM Montpellier integration."
     }
   },
   "options": {
@@ -392,6 +523,60 @@
     },
     "abort": {
       "entry_not_loaded": "The integration is not loaded: bus lines cannot be listed."
+    }
+  },
+  "issues": {
+    "gtfs_stale": {
+      "title": "TaM timetables are out of date",
+      "description": "The TaM timetables (GTFS) were last downloaded on {date}, or they list no service for today and tomorrow. Departures may be missing or wrong.\n\nCheck that Home Assistant can reach the timetables address (integration page, \"Reconfigure\"). The integration downloads them again every night; this message goes away once a current archive is loaded."
+    },
+    "stop_missing": {
+      "title": "Stop no longer served: {stop}",
+      "description": "The stop \"{stop}\" is no longer in the TaM timetables: its sensors show no departure. The operator may have renamed or moved it.\n\nOn the integration page, delete this stop and add it again with \"Add stop\"."
+    },
+    "route_missing": {
+      "title": "Line {line} is no longer in the timetables",
+      "description": "Line {line} is no longer in the TaM timetables. Followed stops on this line: {stops}. Their sensors show no departure.\n\nIf the line was renumbered, delete these stops on the integration page and add them again on the new line."
+    }
+  },
+  "services": {
+    "get_departures": {
+      "name": "Get departures",
+      "description": "Returns the next departures of a followed stop, as listed by its minutes sensor.",
+      "fields": {
+        "device_id": {
+          "name": "Stop",
+          "description": "The followed stop."
+        },
+        "count": {
+          "name": "Count",
+          "description": "How many departures to return (1 to 20)."
+        },
+        "stop_id": {
+          "name": "Stop id",
+          "description": "Instead of the stop: GTFS id of a followed stop."
+        },
+        "route_id": {
+          "name": "Line id",
+          "description": "With the stop id: GTFS id of the line."
+        },
+        "direction_id": {
+          "name": "Direction",
+          "description": "With the stop id: direction of the line, 0 or 1."
+        }
+      }
+    }
+  },
+  "selector": {
+    "labels": {
+      "options": {
+        "towards": "To {direction} (from {origin})",
+        "clockwise": "clockwise",
+        "anticlockwise": "anticlockwise",
+        "tram_line": "Tram line",
+        "tram": "Tram",
+        "bus": "Bus"
+      }
     }
   }
 }
