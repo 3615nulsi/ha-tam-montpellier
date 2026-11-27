@@ -40,5 +40,10 @@
         "default": "mdi:walk"
       }
     }
+  },
+  "services": {
+    "get_departures": {
+      "service": "mdi:timetable"
+    }
   }
 }

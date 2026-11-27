@@ -463,6 +463,15 @@
   "exceptions": {
     "gtfs_unavailable": {
       "message": "Unable to load the TaM timetables: {error}"
+    },
+    "not_loaded": {
+      "message": "The TaM Montpellier integration is not loaded."
+    },
+    "stop_required": {
+      "message": "Give a stop, or its stop, line and direction ids."
+    },
+    "stop_not_followed": {
+      "message": "This stop is not followed by the TaM Montpellier integration."
     }
   },
   "options": {
@@ -495,6 +504,34 @@
     "route_missing": {
       "title": "Line {line} is no longer in the timetables",
       "description": "Line {line} is no longer in the TaM timetables. Followed stops on this line: {stops}. Their sensors show no departure.\n\nIf the line was renumbered, delete these stops on the integration page and add them again on the new line."
+    }
+  },
+  "services": {
+    "get_departures": {
+      "name": "Get departures",
+      "description": "Returns the next departures of a followed stop, as listed by its minutes sensor.",
+      "fields": {
+        "device_id": {
+          "name": "Stop",
+          "description": "The followed stop."
+        },
+        "count": {
+          "name": "Count",
+          "description": "How many departures to return (1 to 20)."
+        },
+        "stop_id": {
+          "name": "Stop id",
+          "description": "Instead of the stop: GTFS id of a followed stop."
+        },
+        "route_id": {
+          "name": "Line id",
+          "description": "With the stop id: GTFS id of the line."
+        },
+        "direction_id": {
+          "name": "Direction",
+          "description": "With the stop id: direction of the line, 0 or 1."
+        }
+      }
     }
   }
 }

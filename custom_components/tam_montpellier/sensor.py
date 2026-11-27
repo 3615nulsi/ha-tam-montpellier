@@ -312,15 +312,7 @@ class TamDepartureSensor(TamStopEntity, SensorEntity):
             attributes["direction"] = self._direction
             # Kept up to date at each minute boundary, see _schedule_refresh.
             attributes["departures"] = [
-                {
-                    "time": dep.time.isoformat(),
-                    "minutes": minutes_until(dep, now),
-                    "destination": dep.headsign,
-                    "source": dep.source.value,
-                    "delay": _delay_minutes(dep),
-                    **_vehicle_attributes(dep),
-                }
-                for dep in departures
+                departure_attributes(dep, now) for dep in departures
             ]
         return attributes
 
@@ -353,6 +345,18 @@ class TamLeaveSensor(TamDepartureSensor):
             "departure": ((departure.time + walk).isoformat() if departure else None),
             "destination": departure.headsign if departure else None,
         }
+
+
+def departure_attributes(departure: Departure, now: datetime) -> dict[str, Any]:
+    """Return a departure as listed in the ``departures`` attribute."""
+    return {
+        "time": departure.time.isoformat(),
+        "minutes": minutes_until(departure, now),
+        "destination": departure.headsign,
+        "source": departure.source.value,
+        "delay": _delay_minutes(departure),
+        **_vehicle_attributes(departure),
+    }
 
 
 def _vehicle_attributes(departure: Departure | None) -> dict[str, Any]:

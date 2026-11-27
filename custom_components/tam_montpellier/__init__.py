@@ -40,6 +40,7 @@ from .coordinator import (
 from .entity import line_device_id
 from .fleet import fleet_lines
 from .issues import async_delete_issues, async_update_issues
+from .services import async_setup_services
 
 if TYPE_CHECKING:
     from homeassistant.components.lovelace.resources import ResourceStorageCollection
@@ -59,10 +60,11 @@ _EXTRA_MODULE_LOADED = f"{DOMAIN}_card_extra_module"
 
 
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
-    """Serve the departure board card."""
+    """Serve the departure board card and register the actions."""
     await hass.http.async_register_static_paths(
         [StaticPathConfig(CARD_URL, str(CARD_PATH), cache_headers=True)]
     )
+    async_setup_services(hass)
     return True
 
 

@@ -127,6 +127,8 @@ class TamCoordinator(DataUpdateCoordinator[dict[StopKey, list[Departure]]]):
         """Whether a feed naming the trams answered at the last update."""
         self.trip_vehicles: dict[str, str] = {}
         """Fleet number of the tram running each trip, at the last update."""
+        self.snapshot = RealtimeSnapshot()
+        """Real-time trips read at the last update."""
         self.feed_timestamp: datetime | None = None
         """Time of the last real-time feed read, as stamped by the operator."""
         self.stop_keys: set[StopKey] = {
@@ -280,6 +282,7 @@ class TamCoordinator(DataUpdateCoordinator[dict[StopKey, list[Departure]]]):
             self._async_fetch_vehicle_positions(),
             self._async_fetch_trip_updates(),
         )
+        self.snapshot = snapshot
         self._update_fleet(snapshot, positions)
         return await self.hass.async_add_executor_job(
             self._compute_departures, snapshot, dt_util.now()
@@ -357,19 +360,31 @@ class TamCoordinator(DataUpdateCoordinator[dict[StopKey, list[Departure]]]):
     def _compute_departures(
         self, snapshot: RealtimeSnapshot, now: datetime
     ) -> dict[StopKey, list[Departure]]:
-        include_added = self.config_entry.options.get(CONF_INCLUDE_ADDED_TRIPS, False)
         return {
-            key: compute_departures(
-                self.static,
-                snapshot,
-                key,
-                now,
-                MAX_DEPARTURES,
-                include_added,
-                self.trip_vehicles,
-            )
+            key: self.departures(key, now, MAX_DEPARTURES, snapshot)
             for key in self.stop_keys
         }
+
+    def departures(
+        self,
+        key: StopKey,
+        now: datetime,
+        limit: int,
+        snapshot: RealtimeSnapshot | None = None,
+    ) -> list[Departure]:
+        """Return the next departures of a followed stop; run in the executor.
+
+        Computed from the real-time trips of the last update by default.
+        """
+        return compute_departures(
+            self.static,
+            self.snapshot if snapshot is None else snapshot,
+            key,
+            now,
+            limit,
+            self.config_entry.options.get(CONF_INCLUDE_ADDED_TRIPS, False),
+            self.trip_vehicles,
+        )
 
     @property
     def feeds_available(self) -> dict[str, bool]:
