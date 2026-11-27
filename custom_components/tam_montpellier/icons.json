@@ -38,6 +38,12 @@
       },
       "minutes_to_leave": {
         "default": "mdi:walk"
+      },
+      "first_departure": {
+        "default": "mdi:weather-sunset-up"
+      },
+      "last_departure": {
+        "default": "mdi:weather-night"
       }
     }
   },

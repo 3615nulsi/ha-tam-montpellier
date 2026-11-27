@@ -424,6 +424,33 @@ async def test_walk_time_reconfigured(
     assert er.async_get(hass).async_get(LEAVE_SENSOR) is None
 
 
+async def test_first_and_last_departures(
+    hass: HomeAssistant,
+    mock_feeds: AiohttpClientMocker,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """The first and last departures of the day are disabled by default."""
+    freezer.move_to(paris(8, 12))
+    entry = _entry()
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    registry = er.async_get(hass)
+    first = "sensor.bravo_delta_tram_1_first_departure_of_the_day"
+    last = "sensor.bravo_delta_tram_1_last_departure_of_the_day"
+    for entity_id in (first, last):
+        assert (
+            registry.async_get(entity_id).disabled_by
+            is er.RegistryEntryDisabler.INTEGRATION
+        )
+        registry.async_update_entity(entity_id, disabled_by=None)
+    assert await hass.config_entries.async_reload(entry.entry_id)
+    await hass.async_block_till_done()
+
+    assert hass.states.get(first).state == "2026-09-23T06:03:00+00:00"
+    assert hass.states.get(last).state == "2026-09-23T22:33:00+00:00"
+
+
 async def test_scheduled_departures_logged(
     hass: HomeAssistant,
     mock_feeds: AiohttpClientMocker,

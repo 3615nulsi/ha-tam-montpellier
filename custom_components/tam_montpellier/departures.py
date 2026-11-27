@@ -340,3 +340,40 @@ def _terminus_delay(
     if delay is None or abs(delay) > MAX_TERMINUS_DELAY.total_seconds():
         return None
     return delay
+
+
+def service_day_bounds(
+    static: StaticData, key: StopKey, day: date
+) -> tuple[datetime, datetime] | None:
+    """Return the first and last scheduled departures of a service day at a stop.
+
+    A departure after midnight belongs to the service day of the evening
+    before, as written in the GTFS (24:30). None when nothing runs that day.
+    """
+    stop_id, route_id, direction_id = key
+    services = static.services_on(day)
+    if not services:
+        return None
+    day_start = static.service_day_start(day)
+    times = [
+        (day_start + timedelta(seconds=scheduled.departure)).timestamp()
+        for platform in static.stop_platforms(stop_id)
+        for scheduled in static.scheduled.get((platform, route_id, direction_id), ())
+        if scheduled.service_id in services
+    ]
+    if not times:
+        return None
+    return (
+        datetime.fromtimestamp(min(times), static.timezone),
+        datetime.fromtimestamp(max(times), static.timezone),
+    )
+
+
+def current_service_day(static: StaticData, key: StopKey, now: datetime) -> date:
+    """Return the service day running at a stop: the day before until its last tram."""
+    today = now.astimezone(static.timezone).date()
+    yesterday = today - timedelta(days=1)
+    bounds = service_day_bounds(static, key, yesterday)
+    if bounds is not None and bounds[1].timestamp() >= now.timestamp():
+        return yesterday
+    return today

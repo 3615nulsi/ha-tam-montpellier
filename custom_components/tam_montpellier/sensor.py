@@ -20,7 +20,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 import math
 from typing import Any
 
@@ -39,7 +39,7 @@ from homeassistant.util import dt as dt_util
 
 from .const import CONF_ROUTE_ID, CONF_WALK_MINUTES, SUBENTRY_TYPE_STOP
 from .coordinator import TamConfigEntry, TamCoordinator
-from .departures import Departure
+from .departures import Departure, current_service_day, service_day_bounds
 from .entity import TamLineEntity, TamStopEntity
 from .fleet import fleet_lines
 from .vehicles import MODELS, VehicleSize, vehicle_model
@@ -156,6 +156,20 @@ MINUTES_TO_LEAVE_DESCRIPTION = TamSensorEntityDescription(
 )
 
 
+FIRST_DEPARTURE_DESCRIPTION = SensorEntityDescription(
+    key="first_departure",
+    translation_key="first_departure",
+    device_class=SensorDeviceClass.TIMESTAMP,
+    entity_registry_enabled_default=False,
+)
+LAST_DEPARTURE_DESCRIPTION = SensorEntityDescription(
+    key="last_departure",
+    translation_key="last_departure",
+    device_class=SensorDeviceClass.TIMESTAMP,
+    entity_registry_enabled_default=False,
+)
+
+
 ALERT_MESSAGE_DESCRIPTION = SensorEntityDescription(
     key="alert_message",
     translation_key="alert_message",
@@ -204,6 +218,10 @@ async def async_setup_entry(
             entities.append(
                 TamLeaveSensor(coordinator, subentry, MINUTES_TO_LEAVE_DESCRIPTION)
             )
+        entities.extend(
+            TamServiceDaySensor(coordinator, subentry, description)
+            for description in (FIRST_DEPARTURE_DESCRIPTION, LAST_DEPARTURE_DESCRIPTION)
+        )
         async_add_entities(entities, config_subentry_id=subentry.subentry_id)
 
 
@@ -315,6 +333,39 @@ class TamDepartureSensor(TamStopEntity, SensorEntity):
                 departure_attributes(dep, now) for dep in departures
             ]
         return attributes
+
+
+class TamServiceDaySensor(TamStopEntity, SensorEntity):
+    """First or last scheduled departure of the service day at the stop.
+
+    From the timetables: a last tram after midnight belongs to the evening
+    before, and is shown until it has left.
+    """
+
+    _bounds: tuple[object, date, tuple[datetime, datetime] | None] | None = None
+
+    @property
+    def native_value(self) -> datetime | None:
+        """Return the first or the last departure of the day."""
+        static = self.coordinator.static
+        day = current_service_day(static, self._stop_key, dt_util.utcnow())
+        # Cached for the day: the timetables of a stop hold many trips.
+        # Compared by identity: StaticData equality would compare every trip.
+        if (
+            self._bounds is None
+            or self._bounds[0] is not static
+            or self._bounds[1] != day
+        ):
+            self._bounds = (
+                static,
+                day,
+                service_day_bounds(static, self._stop_key, day),
+            )
+        if (bounds := self._bounds[2]) is None:
+            return None
+        return (
+            bounds[0] if self.entity_description.key == "first_departure" else bounds[1]
+        )
 
 
 class TamLeaveSensor(TamDepartureSensor):

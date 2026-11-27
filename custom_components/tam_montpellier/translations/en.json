@@ -457,6 +457,12 @@
             "name": "Destination"
           }
         }
+      },
+      "first_departure": {
+        "name": "First departure of the day"
+      },
+      "last_departure": {
+        "name": "Last departure of the day"
       }
     }
   },
