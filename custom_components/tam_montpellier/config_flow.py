@@ -24,6 +24,9 @@ from homeassistant.data_entry_flow import section
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.selector import (
     BooleanSelector,
+    NumberSelector,
+    NumberSelectorConfig,
+    NumberSelectorMode,
     SelectOptionDict,
     SelectSelector,
     SelectSelectorConfig,
@@ -38,9 +41,12 @@ from .const import (
     CONF_EXTRA_ROUTES,
     CONF_GTFS_URL,
     CONF_INCLUDE_ADDED_TRIPS,
+    CONF_LEAVE_WINDOW,
     CONF_ROUTE_ID,
     CONF_STOP_ID,
     CONF_TRIP_UPDATES_URL,
+    CONF_WALK_MINUTES,
+    DEFAULT_LEAVE_WINDOW,
     DEFAULT_URLS,
     DOMAIN,
     REQUEST_TIMEOUT,
@@ -107,6 +113,38 @@ async def _async_check_gtfs(hass: HomeAssistant, url: str) -> str | None:
     except (ClientError, TimeoutError):
         return "gtfs_cannot_connect"
     return None if start == _ZIP_SIGNATURE else "invalid_gtfs"
+
+
+# Walk to the stop and "time to leave" window, in minutes.
+_LEAVE_FIELDS = {
+    vol.Optional(CONF_WALK_MINUTES): NumberSelector(
+        NumberSelectorConfig(
+            min=0,
+            max=60,
+            step=1,
+            mode=NumberSelectorMode.BOX,
+            unit_of_measurement="min",
+        )
+    ),
+    vol.Optional(CONF_LEAVE_WINDOW): NumberSelector(
+        NumberSelectorConfig(
+            min=1,
+            max=15,
+            step=1,
+            mode=NumberSelectorMode.BOX,
+            unit_of_measurement="min",
+        )
+    ),
+}
+
+
+def _leave_data(user_input: Mapping[str, Any]) -> dict[str, int]:
+    """Return the walk and window given in a form, as whole minutes."""
+    return {
+        key: int(user_input[key])
+        for key in (CONF_WALK_MINUTES, CONF_LEAVE_WINDOW)
+        if user_input.get(key) is not None
+    }
 
 
 async def _async_check_urls(hass: HomeAssistant, urls: Mapping[str, str]) -> str | None:
@@ -429,6 +467,7 @@ class StopSubentryFlowHandler(ConfigSubentryFlow):
                     CONF_ROUTE_ID: self._route_id,
                     CONF_DIRECTION_ID: self._direction_id,
                     CONF_STOP_ID: stop_id,
+                    **_leave_data(user_input),
                 },
                 unique_id=f"{stop_id}_{self._route_id}_{self._direction_id}",
             )
@@ -446,7 +485,8 @@ class StopSubentryFlowHandler(ConfigSubentryFlow):
                             ],
                             mode=SelectSelectorMode.DROPDOWN,
                         )
-                    )
+                    ),
+                    **_LEAVE_FIELDS,
                 }
             ),
             description_placeholders={
@@ -456,6 +496,36 @@ class StopSubentryFlowHandler(ConfigSubentryFlow):
                 ),
                 "direction": self._direction_name,
             },
+        )
+
+    async def async_step_reconfigure(
+        self, user_input: dict[str, Any] | None = None
+    ) -> SubentryFlowResult:
+        """Change the walk to the stop and the "time to leave" window."""
+        subentry = self._get_reconfigure_subentry()
+        if user_input is not None:
+            data = {
+                key: value
+                for key, value in subentry.data.items()
+                if key not in (CONF_WALK_MINUTES, CONF_LEAVE_WINDOW)
+            }
+            return self.async_update_and_abort(
+                self._get_entry(), subentry, data={**data, **_leave_data(user_input)}
+            )
+        return self.async_show_form(
+            step_id="reconfigure",
+            data_schema=self.add_suggested_values_to_schema(
+                vol.Schema(_LEAVE_FIELDS),
+                {
+                    CONF_LEAVE_WINDOW: DEFAULT_LEAVE_WINDOW,
+                    **{
+                        key: subentry.data[key]
+                        for key in (CONF_WALK_MINUTES, CONF_LEAVE_WINDOW)
+                        if key in subentry.data
+                    },
+                },
+            ),
+            description_placeholders={"stop": subentry.title},
         )
 
     @property

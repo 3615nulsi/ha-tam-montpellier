@@ -28,10 +28,12 @@ from custom_components.tam_montpellier.const import (
     CONF_EXTRA_ROUTES,
     CONF_GTFS_URL,
     CONF_INCLUDE_ADDED_TRIPS,
+    CONF_LEAVE_WINDOW,
     CONF_ROUTE_ID,
     CONF_STOP_ID,
     CONF_TRIP_UPDATES_URL,
     CONF_VEHICLE_POSITIONS_URL,
+    CONF_WALK_MINUTES,
     DEFAULT_ALERTS_URL,
     DEFAULT_GTFS_URL,
     DEFAULT_TRIP_UPDATES_URL,
@@ -330,6 +332,96 @@ async def test_card_attributes_survive_renaming(
     assert attributes["direction"] == "Delta"
     entity = er.async_get(hass).async_get(MINUTES_SENSOR)
     assert entity.translation_key == "minutes_to_next_departure"
+
+
+LEAVE_SENSOR = "sensor.bravo_delta_tram_1_minutes_before_leaving"
+LEAVE_BINARY_SENSOR = "binary_sensor.bravo_delta_tram_1_time_to_leave"
+
+
+async def test_time_to_leave(
+    hass: HomeAssistant,
+    mock_feeds: AiohttpClientMocker,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """With a walk to the stop, the integration tells when to leave."""
+    freezer.move_to(paris(8, 12))
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="TaM Montpellier",
+        data=ENTRY_DATA,
+        subentries_data=[
+            ConfigSubentryData(
+                data={**STOP_DATA, CONF_WALK_MINUTES: 5},
+                subentry_type=SUBENTRY_TYPE_STOP,
+                title="Bravo → Delta (Tram 1)",
+                unique_id="B_1_0",
+            )
+        ],
+    )
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    # The 08:14:30 tram is out of reach; leave at 08:18 for the 08:23 one.
+    state = hass.states.get(LEAVE_SENSOR)
+    assert state.state == "6"
+    assert state.attributes["departure"] == paris(8, 23).isoformat()
+    assert hass.states.get(LEAVE_BINARY_SENSOR).state == "off"
+
+    freezer.move_to(paris(8, 16, 5))
+    async_fire_time_changed(hass)
+    await hass.async_block_till_done()
+    assert hass.states.get(LEAVE_SENSOR).state == "1"
+    assert hass.states.get(LEAVE_BINARY_SENSOR).state == "on"
+
+    freezer.move_to(paris(8, 18, 1))
+    async_fire_time_changed(hass)
+    await hass.async_block_till_done()
+    # The 08:23 tram is now out of reach: leave at 08:28 for the 08:33 one.
+    assert hass.states.get(LEAVE_SENSOR).state == "9"
+    assert hass.states.get(LEAVE_BINARY_SENSOR).state == "off"
+
+
+async def test_walk_time_reconfigured(
+    hass: HomeAssistant,
+    mock_feeds: AiohttpClientMocker,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """The walk is set and cleared from the stop, its entities follow."""
+    freezer.move_to(paris(8, 12))
+    entry = _entry()
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    assert hass.states.get(LEAVE_SENSOR) is None
+    subentry_id = next(iter(entry.subentries))
+
+    async def reconfigure(user_input: dict) -> None:
+        result = await hass.config_entries.subentries.async_init(
+            (entry.entry_id, SUBENTRY_TYPE_STOP),
+            context={"source": "reconfigure", "subentry_id": subentry_id},
+        )
+        assert result["step_id"] == "reconfigure"
+        result = await hass.config_entries.subentries.async_configure(
+            result["flow_id"], user_input
+        )
+        assert result["reason"] == "reconfigure_successful"
+        await hass.async_block_till_done()
+
+    await reconfigure({CONF_WALK_MINUTES: 5, CONF_LEAVE_WINDOW: 3})
+    assert entry.subentries[subentry_id].data == {
+        **STOP_DATA,
+        CONF_WALK_MINUTES: 5,
+        CONF_LEAVE_WINDOW: 3,
+    }
+    assert hass.states.get(LEAVE_SENSOR).state == "6"
+    binary = hass.states.get(LEAVE_BINARY_SENSOR)
+    assert binary.attributes["window_minutes"] == 3
+
+    await reconfigure({})
+    assert entry.subentries[subentry_id].data == STOP_DATA
+    assert hass.states.get(LEAVE_SENSOR) is None
+    assert er.async_get(hass).async_get(LEAVE_SENSOR) is None
 
 
 async def test_scheduled_departures_logged(

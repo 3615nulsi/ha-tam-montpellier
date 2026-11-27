@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta
+
 from homeassistant.config_entries import ConfigSubentry
 from homeassistant.helpers.device_registry import DeviceEntryType, DeviceInfo
 from homeassistant.helpers.entity import EntityDescription
@@ -9,9 +11,17 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.util import dt as dt_util
 
 from .alerts import Alert, alerts_for
-from .const import ATTRIBUTION, DOMAIN
+from .const import (
+    ATTRIBUTION,
+    CONF_LEAVE_WINDOW,
+    CONF_WALK_MINUTES,
+    DEFAULT_LEAVE_WINDOW,
+    DOMAIN,
+)
 from .coordinator import TamCoordinator, stop_key_from_data
+from .departures import Departure
 from .fleet import FleetLine, fleet_line_name
+from .leave import leave_departures
 
 
 class TamStopEntity(CoordinatorEntity[TamCoordinator]):
@@ -36,6 +46,12 @@ class TamStopEntity(CoordinatorEntity[TamCoordinator]):
         self._clockwise = coordinator.static.clockwise.get((route_id, direction_id))
         self._stop_name = coordinator.static.stop_names.get(stop_id, stop_id)
         self._direction = coordinator.static.direction_label(route_id, direction_id)
+        walk = subentry.data.get(CONF_WALK_MINUTES)
+        self._walk = timedelta(minutes=walk) if walk is not None else None
+        """Time walked to the stop, None when not given."""
+        self._leave_window = timedelta(
+            minutes=subentry.data.get(CONF_LEAVE_WINDOW, DEFAULT_LEAVE_WINDOW)
+        )
         self._attr_unique_id = f"{stop_id}_{route_id}_{direction_id}_{description.key}"
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, f"{stop_id}_{route_id}_{direction_id}")},
@@ -44,6 +60,15 @@ class TamStopEntity(CoordinatorEntity[TamCoordinator]):
             model=f"{coordinator.static.line_kind(route_id)} {self._line}",
             entry_type=DeviceEntryType.SERVICE,
         )
+
+    def _leave_departures(self, now: datetime) -> list[Departure]:
+        """Return the departures still within reach, at the time to leave."""
+        departures = [
+            dep
+            for dep in self.coordinator.data.get(self._stop_key, [])
+            if dep.time > now
+        ]
+        return leave_departures(departures, now, self._walk or timedelta())
 
     def _active_alerts(self) -> list[Alert]:
         """Return the alerts in effect for this stop, line and direction."""

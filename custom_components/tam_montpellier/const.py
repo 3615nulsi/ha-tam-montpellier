@@ -21,6 +21,12 @@ CONF_EXTRA_ROUTES: Final = "extra_routes"
 # disruptions), which the official app leaves out.
 CONF_INCLUDE_ADDED_TRIPS: Final = "include_added_trips"
 
+# Stop subentry, optional: minutes walked to the stop, and how long before
+# leaving the "time to leave" binary sensor turns on.
+CONF_WALK_MINUTES: Final = "walk_minutes"
+CONF_LEAVE_WINDOW: Final = "leave_window"
+DEFAULT_LEAVE_WINDOW: Final = 2
+
 SUBENTRY_TYPE_STOP: Final = "stop"
 
 DEFAULT_GTFS_URL: Final = "https://gtfsproxy.e-tam.fr/COMMON/GTFS.zip"

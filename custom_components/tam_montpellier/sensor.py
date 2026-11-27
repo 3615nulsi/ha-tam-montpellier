@@ -37,7 +37,7 @@ from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.event import async_track_point_in_utc_time
 from homeassistant.util import dt as dt_util
 
-from .const import CONF_ROUTE_ID, SUBENTRY_TYPE_STOP
+from .const import CONF_ROUTE_ID, CONF_WALK_MINUTES, SUBENTRY_TYPE_STOP
 from .coordinator import TamConfigEntry, TamCoordinator
 from .departures import Departure
 from .entity import TamLineEntity, TamStopEntity
@@ -146,6 +146,16 @@ NEXT_VEHICLE_DESCRIPTION = TamSensorEntityDescription(
 )
 
 
+MINUTES_TO_LEAVE_DESCRIPTION = TamSensorEntityDescription(
+    key="minutes_to_leave",
+    translation_key="minutes_to_leave",
+    native_unit_of_measurement=UnitOfTime.MINUTES,
+    index=0,
+    value_fn=minutes_until,
+    minute_precision=True,
+)
+
+
 ALERT_MESSAGE_DESCRIPTION = SensorEntityDescription(
     key="alert_message",
     translation_key="alert_message",
@@ -190,6 +200,10 @@ async def async_setup_entry(
         entities.append(
             TamAlertMessageSensor(coordinator, subentry, ALERT_MESSAGE_DESCRIPTION)
         )
+        if CONF_WALK_MINUTES in subentry.data:
+            entities.append(
+                TamLeaveSensor(coordinator, subentry, MINUTES_TO_LEAVE_DESCRIPTION)
+            )
         async_add_entities(entities, config_subentry_id=subentry.subentry_id)
 
 
@@ -309,6 +323,36 @@ class TamDepartureSensor(TamStopEntity, SensorEntity):
                 for dep in departures
             ]
         return attributes
+
+
+class TamLeaveSensor(TamDepartureSensor):
+    """Minutes left before leaving for the next tram within reach.
+
+    The tram within reach is the first one leaving after the walk to the
+    stop; the count is rounded down, and rewritten at each minute boundary,
+    as the minutes to the next departure.
+    """
+
+    _unrecorded_attributes = frozenset({"line_color", "line_text_color"})
+
+    def _departures(self, now: datetime) -> list[Departure]:
+        """Return the departures within reach, at the time to leave."""
+        return self._leave_departures(now)
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return the tram to catch and the walk to the stop."""
+        departure = self._departure(self._departures(dt_util.utcnow()))
+        walk = self._walk or timedelta()
+        return {
+            "line": self._line,
+            "line_color": f"#{self._route.color}" if self._route else None,
+            "line_text_color": f"#{self._route.text_color}" if self._route else None,
+            "walk_minutes": int(walk.total_seconds() // 60),
+            "leave_at": departure.time.isoformat() if departure else None,
+            "departure": ((departure.time + walk).isoformat() if departure else None),
+            "destination": departure.headsign if departure else None,
+        }
 
 
 def _vehicle_attributes(departure: Departure | None) -> dict[str, Any]:

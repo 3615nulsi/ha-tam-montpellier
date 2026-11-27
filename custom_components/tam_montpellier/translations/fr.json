@@ -48,7 +48,8 @@
     "stop": {
       "entry_type": "Arrêt",
       "initiate_flow": {
-        "user": "Ajouter un arrêt"
+        "user": "Ajouter un arrêt",
+        "reconfigure": "Trajet à pied jusqu'à l'arrêt"
       },
       "step": {
         "user": {
@@ -68,13 +69,31 @@
           "title": "Choisir l'arrêt",
           "description": "{line} vers {direction}.",
           "data": {
-            "stop_id": "Arrêt"
+            "stop_id": "Arrêt",
+            "walk_minutes": "Trajet à pied jusqu'à l'arrêt (min)",
+            "leave_window": "Prévenir avant de partir (min)"
+          },
+          "data_description": {
+            "walk_minutes": "Facultatif. Ajoute un capteur « Minutes avant de partir » et un capteur binaire « Il faut partir ».",
+            "leave_window": "Combien de temps avant le départ « Il faut partir » s'allume (2 min si vide)."
+          }
+        },
+        "reconfigure": {
+          "title": "Trajet à pied jusqu'à l'arrêt",
+          "description": "{stop} : temps de marche jusqu'à l'arrêt. Laissez vide pour retirer les entités « Il faut partir ».",
+          "data": {
+            "walk_minutes": "Trajet à pied jusqu'à l'arrêt (min)",
+            "leave_window": "Prévenir avant de partir (min)"
+          },
+          "data_description": {
+            "leave_window": "Combien de temps avant le départ « Il faut partir » s'allume."
           }
         }
       },
       "abort": {
         "already_configured": "Cet arrêt est déjà suivi pour cette ligne et cette direction.",
-        "entry_not_loaded": "L'intégration n'est pas chargée : impossible de lister les arrêts."
+        "entry_not_loaded": "L'intégration n'est pas chargée : impossible de lister les arrêts.",
+        "reconfigure_successful": "L'arrêt est mis à jour."
       }
     }
   },
@@ -91,6 +110,20 @@
           },
           "alerts": {
             "name": "Alertes"
+          }
+        }
+      },
+      "time_to_leave": {
+        "name": "Il faut partir",
+        "state_attributes": {
+          "line": {
+            "name": "Ligne"
+          },
+          "leave_at": {
+            "name": "Partir à"
+          },
+          "window_minutes": {
+            "name": "Fenêtre (min)"
           }
         }
       }
@@ -396,6 +429,32 @@
           },
           "short_vehicles": {
             "name": "Rames courtes en service"
+          }
+        }
+      },
+      "minutes_to_leave": {
+        "name": "Minutes avant de partir",
+        "state_attributes": {
+          "line": {
+            "name": "Ligne"
+          },
+          "line_color": {
+            "name": "Couleur de la ligne"
+          },
+          "line_text_color": {
+            "name": "Couleur du texte"
+          },
+          "walk_minutes": {
+            "name": "Marche (min)"
+          },
+          "leave_at": {
+            "name": "Partir à"
+          },
+          "departure": {
+            "name": "Passage"
+          },
+          "destination": {
+            "name": "Destination"
           }
         }
       }
