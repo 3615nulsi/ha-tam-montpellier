@@ -2,8 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
 import csv
 from datetime import datetime
+from http import HTTPStatus
+import json
 import logging
 from pathlib import Path
 import zipfile
@@ -61,6 +64,11 @@ _LOGGER = logging.getLogger(__name__)
 type TamConfigEntry = ConfigEntry[TamCoordinator]
 
 
+# Response headers identifying an archive -> request headers asking whether
+# it changed. A server answering "304 Not Modified" spares the download.
+_VALIDATORS = {"ETag": "If-None-Match", "Last-Modified": "If-Modified-Since"}
+
+
 class GtfsDownloadError(Exception):
     """Raised when the static GTFS archive cannot be obtained."""
 
@@ -107,6 +115,7 @@ class TamCoordinator(DataUpdateCoordinator[dict[StopKey, list[Departure]]]):
         )
         self._gtfs_path = Path(hass.config.path(STORAGE_DIR, DOMAIN, "gtfs.zip"))
         self._static_cache_path = self._gtfs_path.with_name("gtfs_static.pickle")
+        self._validators_path = self._gtfs_path.with_name("gtfs_validators.json")
         self._realtime_available = True
         self._alerts_available = True
         self._positions_available = True
@@ -126,12 +135,16 @@ class TamCoordinator(DataUpdateCoordinator[dict[StopKey, list[Departure]]]):
             if subentry.subentry_type == SUBENTRY_TYPE_STOP
         }
 
-    async def async_load_static(self, force_download: bool = False) -> None:
+    async def async_load_static(
+        self, force_download: bool = False, conditional: bool = True
+    ) -> None:
         """Download (when outdated) and parse the static GTFS archive.
 
         The parsed archive is cached, so a restart does not parse it again.
+        With ``conditional``, the server may answer that the cached archive
+        is still the current one.
         """
-        static = await self._async_download_gtfs(force_download)
+        static = await self._async_download_gtfs(force_download, conditional)
         if static is None:
             static = await self.hass.async_add_executor_job(
                 self._load_static, self._gtfs_path
@@ -179,7 +192,9 @@ class TamCoordinator(DataUpdateCoordinator[dict[StopKey, list[Departure]]]):
                 upcoming[0].time.isoformat() if upcoming else "none in the next day",
             )
 
-    async def _async_download_gtfs(self, force: bool) -> StaticData | None:
+    async def _async_download_gtfs(
+        self, force: bool, conditional: bool
+    ) -> StaticData | None:
         """Refresh the cached GTFS archive, keeping the old one on failure.
 
         The download is parsed before it replaces the cached archive: a web
@@ -190,14 +205,30 @@ class TamCoordinator(DataUpdateCoordinator[dict[StopKey, list[Departure]]]):
         mtime = await self.hass.async_add_executor_job(_file_mtime, self._gtfs_path)
         if not force and mtime is not None and dt_util.utcnow() - mtime < GTFS_MAX_AGE:
             return None
+        headers: dict[str, str] = {}
+        if conditional and mtime is not None:
+            headers = await self.hass.async_add_executor_job(
+                _read_validators, self._validators_path
+            )
         session = async_get_clientsession(self.hass)
         try:
             async with session.get(
                 self.config_entry.data[CONF_GTFS_URL],
+                headers=headers,
                 timeout=ClientTimeout(total=GTFS_DOWNLOAD_TIMEOUT),
             ) as resp:
+                if resp.status == HTTPStatus.NOT_MODIFIED:
+                    # Left as is: touching it would make its cached parse
+                    # outdated, and the archive would be parsed again.
+                    _LOGGER.debug("The cached TaM GTFS archive is still current")
+                    return None
                 resp.raise_for_status()
                 payload = await resp.read()
+                validators = {
+                    request: resp.headers[response]
+                    for response, request in _VALIDATORS.items()
+                    if response in resp.headers
+                }
         except (ClientError, TimeoutError) as err:
             if mtime is None:
                 raise GtfsDownloadError(str(err)) from err
@@ -205,7 +236,7 @@ class TamCoordinator(DataUpdateCoordinator[dict[StopKey, list[Departure]]]):
             return None
         try:
             return await self.hass.async_add_executor_job(
-                self._replace_archive, payload
+                self._replace_archive, payload, validators
             )
         except GTFS_ERRORS as err:
             if mtime is None:
@@ -218,7 +249,9 @@ class TamCoordinator(DataUpdateCoordinator[dict[StopKey, list[Departure]]]):
             )
             return None
 
-    def _replace_archive(self, payload: bytes) -> StaticData:
+    def _replace_archive(
+        self, payload: bytes, validators: dict[str, str]
+    ) -> StaticData:
         """Parse a downloaded archive, then cache it; run in the executor.
 
         The parse is cached under the new file, which keeps its modification
@@ -232,6 +265,7 @@ class TamCoordinator(DataUpdateCoordinator[dict[StopKey, list[Departure]]]):
             new_path.unlink(missing_ok=True)
             raise
         new_path.replace(self._gtfs_path)
+        _write_file(self._validators_path, json.dumps(validators).encode())
         return static
 
     async def _async_update_data(self) -> dict[StopKey, list[Departure]]:
@@ -240,9 +274,19 @@ class TamCoordinator(DataUpdateCoordinator[dict[StopKey, list[Departure]]]):
         When the real-time feed is unavailable, departures fall back to the
         scheduled times instead of making the entities unavailable.
         """
-        await self._async_update_alerts()
-        positions = await self._async_fetch_vehicle_positions()
-        snapshot = RealtimeSnapshot()
+        # The three feeds are read at once, each failing on its own.
+        _, positions, snapshot = await asyncio.gather(
+            self._async_update_alerts(),
+            self._async_fetch_vehicle_positions(),
+            self._async_fetch_trip_updates(),
+        )
+        self._update_fleet(snapshot, positions)
+        return await self.hass.async_add_executor_job(
+            self._compute_departures, snapshot, dt_util.now()
+        )
+
+    async def _async_fetch_trip_updates(self) -> RealtimeSnapshot:
+        """Fetch the real-time trips, an empty snapshot when the feed fails."""
         try:
             payload = await async_fetch_feed(
                 self.hass, self.config_entry.data[CONF_TRIP_UPDATES_URL]
@@ -252,14 +296,11 @@ class TamCoordinator(DataUpdateCoordinator[dict[StopKey, list[Departure]]]):
             )
         except (ClientError, TimeoutError, DecodeError) as err:
             self._set_realtime_available(False, err)
-        else:
-            self._set_realtime_available(True, None)
-            if snapshot.timestamp:
-                self.feed_timestamp = dt_util.utc_from_timestamp(snapshot.timestamp)
-        self._update_fleet(snapshot, positions)
-        return await self.hass.async_add_executor_job(
-            self._compute_departures, snapshot, dt_util.now()
-        )
+            return RealtimeSnapshot()
+        self._set_realtime_available(True, None)
+        if snapshot.timestamp:
+            self.feed_timestamp = dt_util.utc_from_timestamp(snapshot.timestamp)
+        return snapshot
 
     async def _async_update_alerts(self) -> None:
         """Refresh the service alerts, keeping the last ones on failure."""
@@ -368,6 +409,21 @@ def _file_mtime(path: Path) -> datetime | None:
         return dt_util.utc_from_timestamp(path.stat().st_mtime)
     except FileNotFoundError:
         return None
+
+
+def _read_validators(path: Path) -> dict[str, str]:
+    """Return the request headers asking whether the cached archive changed."""
+    try:
+        validators = json.loads(path.read_bytes())
+    except (OSError, ValueError):
+        return {}
+    if not isinstance(validators, dict):
+        return {}
+    return {
+        key: value
+        for key, value in validators.items()
+        if key in _VALIDATORS.values() and isinstance(value, str)
+    }
 
 
 def _write_file(path: Path, payload: bytes) -> None:

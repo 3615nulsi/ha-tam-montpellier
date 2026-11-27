@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+import hashlib
 import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -17,7 +18,7 @@ from homeassistant.helpers.event import async_track_time_change
 from homeassistant.helpers.typing import ConfigType
 from homeassistant.loader import async_get_integration
 
-from .const import DOMAIN, GTFS_REFRESH_HOUR, GTFS_REFRESH_MINUTE
+from .const import DOMAIN, GTFS_REFRESH_HOUR, GTFS_REFRESH_MINUTE, GTFS_REFRESH_SPREAD
 from .coordinator import GTFS_ERRORS, GtfsDownloadError, TamConfigEntry, TamCoordinator
 from .issues import async_delete_issues, async_update_issues
 
@@ -143,13 +144,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: TamConfigEntry) -> bool:
         await async_update_issues(hass, entry, coordinator)
         await coordinator.async_request_refresh()
 
+    hour, minute, second = gtfs_refresh_time(entry.entry_id)
     entry.async_on_unload(
         async_track_time_change(
-            hass,
-            _async_refresh_static,
-            hour=GTFS_REFRESH_HOUR,
-            minute=GTFS_REFRESH_MINUTE,
-            second=0,
+            hass, _async_refresh_static, hour=hour, minute=minute, second=second
         )
     )
     # Stops are config subentries: reload to pick up added or removed stops.
@@ -157,6 +155,19 @@ async def async_setup_entry(hass: HomeAssistant, entry: TamConfigEntry) -> bool:
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     return True
+
+
+def gtfs_refresh_time(entry_id: str) -> tuple[int, int, int]:
+    """Return the time of the nightly download, the same for an installation.
+
+    Spread over an hour from one installation to another, so that they do not
+    all download the archive from the TaM servers at once.
+    """
+    digest = hashlib.sha256(entry_id.encode()).digest()
+    offset = int.from_bytes(digest[:4]) % int(GTFS_REFRESH_SPREAD.total_seconds())
+    seconds = GTFS_REFRESH_HOUR * 3600 + GTFS_REFRESH_MINUTE * 60 + offset
+    hour, rest = divmod(seconds, 3600)
+    return hour, *divmod(rest, 60)
 
 
 async def _async_load_static(coordinator: TamCoordinator) -> None:
@@ -170,7 +181,8 @@ async def _async_load_static(coordinator: TamCoordinator) -> None:
             "Could not read the cached TaM GTFS archive, downloading it again: %r",
             err,
         )
-        await coordinator.async_load_static(force_download=True)
+        # Not conditional: the server would tell the broken archive is current.
+        await coordinator.async_load_static(force_download=True, conditional=False)
 
 
 async def _async_update_listener(hass: HomeAssistant, entry: TamConfigEntry) -> None:

@@ -208,7 +208,8 @@ seulement la couleur du texte pour qu'il reste lisible.
 - Le temps réel (GTFS-RT : trajets, positions des véhicules, alertes) est lu
   toutes les 30 secondes.
 - Les horaires théoriques (GTFS, environ 8 Mo) sont téléchargés au démarrage
-  puis chaque nuit à 3 h 30, et gardés en cache dans
+  puis chaque nuit entre 3 h 30 et 4 h 30 (l'heure dépend de l'installation, pour
+  ne pas solliciter les serveurs TaM tous en même temps), et gardés en cache dans
   `.storage/tam_montpellier/` pour que les redémarrages soient rapides. Une
   archive téléchargée n'est conservée qu'après avoir été lue sans erreur :
   sinon, la précédente reste en service.

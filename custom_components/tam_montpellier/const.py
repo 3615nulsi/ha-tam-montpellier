@@ -47,8 +47,11 @@ REQUEST_TIMEOUT: Final = 20
 GTFS_DOWNLOAD_TIMEOUT: Final = 180
 # The GTFS archive is regenerated daily by the operator.
 GTFS_MAX_AGE: Final = timedelta(hours=20)
+# The archive is downloaded again each night, at a time between 3:30 and
+# 4:30 that depends on the installation.
 GTFS_REFRESH_HOUR: Final = 3
 GTFS_REFRESH_MINUTE: Final = 30
+GTFS_REFRESH_SPREAD: Final = timedelta(hours=1)
 
 # Number of upcoming departures exposed in the sensor attributes.
 MAX_DEPARTURES: Final = 6
