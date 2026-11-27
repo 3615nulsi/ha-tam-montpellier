@@ -54,7 +54,7 @@ def test_leave_departures_across_dst() -> None:
     ("now", "on", "change"),
     [
         (paris(8, 15), False, paris(8, 16)),
-        (paris(8, 16), False, paris(8, 18)),
+        (paris(8, 16), True, paris(8, 18)),
         (paris(8, 16, 1), True, paris(8, 18)),
         (paris(8, 17, 59), True, paris(8, 18)),
         (paris(8, 18), False, None),
