@@ -121,3 +121,45 @@ test("the card speaks the language of Home Assistant", () => {
 test("both languages have the same texts", () => {
   assert.deepEqual(Object.keys(card.texts({ language: "en" })).sort(), Object.keys(card.texts({ language: "fr" })).sort());
 });
+
+function twoStops() {
+  const states = {};
+  const entities = {};
+  for (const [device, stop] of [["d1", "Comédie"], ["d2", "Corum"]]) {
+    const id = `sensor.${device}_minutes`;
+    states[id] = { ...minutesState({ stop_name: stop, direction: "Mosson" }), entity_id: id };
+    entities[id] = { entity_id: id, platform: "tam_montpellier", device_id: device, translation_key: "minutes_to_next_departure" };
+  }
+  return hassWith(states, entities);
+}
+
+test("a card shows several stops, one board each", () => {
+  const hass = twoStops();
+  const config = { devices: ["d1", "d2"], name: "Ignored" };
+  const blocks = card.stopBlocks(hass, config);
+  assert.deepEqual(blocks.map((block) => block.minutes), ["sensor.d1_minutes", "sensor.d2_minutes"]);
+  const html = card.renderCard(blocks, hass, config);
+  assert.equal(html.match(/class="board"/g).length, 2);
+  assert.match(html, /data-entity="sensor.d1_minutes"/);
+  assert.match(html, /Comédie[\s\S]*Corum/);
+  // The displayed name is for a single stop only.
+  assert.doesNotMatch(html, /Ignored/);
+});
+
+test("a single stop is still configured as before", () => {
+  const hass = twoStops();
+  const blocks = card.stopBlocks(hass, { device: "d2", name: "Chez moi" });
+  assert.equal(blocks.length, 1);
+  assert.match(card.renderCard(blocks, hass, { device: "d2", name: "Chez moi" }), /Chez moi/);
+});
+
+test("the editor keeps one stop as device, several as devices", () => {
+  assert.deepEqual(
+    { ...card.editedConfig({ type: "custom:tam-board-card" }, { devices: ["d1"], vehicle_size: "auto" }) },
+    { type: "custom:tam-board-card", device: "d1" },
+  );
+  assert.deepEqual(
+    { ...card.editedConfig({ type: "custom:tam-board-card", device: "d1", name: "x" }, { devices: ["d1", "d2"] }) },
+    { type: "custom:tam-board-card", devices: ["d1", "d2"] },
+  );
+});
