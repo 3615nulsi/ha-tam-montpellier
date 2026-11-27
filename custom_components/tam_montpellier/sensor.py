@@ -20,7 +20,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 import math
 from typing import Any
 
@@ -37,9 +37,9 @@ from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.event import async_track_point_in_utc_time
 from homeassistant.util import dt as dt_util
 
-from .const import CONF_ROUTE_ID, SUBENTRY_TYPE_STOP
+from .const import CONF_ROUTE_ID, CONF_WALK_MINUTES, SUBENTRY_TYPE_STOP
 from .coordinator import TamConfigEntry, TamCoordinator
-from .departures import Departure
+from .departures import Departure, current_service_day, service_day_bounds
 from .entity import TamLineEntity, TamStopEntity
 from .fleet import fleet_lines
 from .vehicles import MODELS, VehicleSize, vehicle_model
@@ -146,6 +146,30 @@ NEXT_VEHICLE_DESCRIPTION = TamSensorEntityDescription(
 )
 
 
+MINUTES_TO_LEAVE_DESCRIPTION = TamSensorEntityDescription(
+    key="minutes_to_leave",
+    translation_key="minutes_to_leave",
+    native_unit_of_measurement=UnitOfTime.MINUTES,
+    index=0,
+    value_fn=minutes_until,
+    minute_precision=True,
+)
+
+
+FIRST_DEPARTURE_DESCRIPTION = SensorEntityDescription(
+    key="first_departure",
+    translation_key="first_departure",
+    device_class=SensorDeviceClass.TIMESTAMP,
+    entity_registry_enabled_default=False,
+)
+LAST_DEPARTURE_DESCRIPTION = SensorEntityDescription(
+    key="last_departure",
+    translation_key="last_departure",
+    device_class=SensorDeviceClass.TIMESTAMP,
+    entity_registry_enabled_default=False,
+)
+
+
 ALERT_MESSAGE_DESCRIPTION = SensorEntityDescription(
     key="alert_message",
     translation_key="alert_message",
@@ -189,6 +213,14 @@ async def async_setup_entry(
             )
         entities.append(
             TamAlertMessageSensor(coordinator, subentry, ALERT_MESSAGE_DESCRIPTION)
+        )
+        if CONF_WALK_MINUTES in subentry.data:
+            entities.append(
+                TamLeaveSensor(coordinator, subentry, MINUTES_TO_LEAVE_DESCRIPTION)
+            )
+        entities.extend(
+            TamServiceDaySensor(coordinator, subentry, description)
+            for description in (FIRST_DEPARTURE_DESCRIPTION, LAST_DEPARTURE_DESCRIPTION)
         )
         async_add_entities(entities, config_subentry_id=subentry.subentry_id)
 
@@ -298,17 +330,84 @@ class TamDepartureSensor(TamStopEntity, SensorEntity):
             attributes["direction"] = self._direction
             # Kept up to date at each minute boundary, see _schedule_refresh.
             attributes["departures"] = [
-                {
-                    "time": dep.time.isoformat(),
-                    "minutes": minutes_until(dep, now),
-                    "destination": dep.headsign,
-                    "source": dep.source.value,
-                    "delay": _delay_minutes(dep),
-                    **_vehicle_attributes(dep),
-                }
-                for dep in departures
+                departure_attributes(dep, now) for dep in departures
             ]
         return attributes
+
+
+class TamServiceDaySensor(TamStopEntity, SensorEntity):
+    """First or last scheduled departure of the service day at the stop.
+
+    From the timetables: a last tram after midnight belongs to the evening
+    before, and is shown until it has left.
+    """
+
+    _bounds: tuple[object, date, tuple[datetime, datetime] | None] | None = None
+
+    @property
+    def native_value(self) -> datetime | None:
+        """Return the first or the last departure of the day."""
+        static = self.coordinator.static
+        day = current_service_day(static, self._stop_key, dt_util.utcnow())
+        # Cached for the day: the timetables of a stop hold many trips.
+        # Compared by identity: StaticData equality would compare every trip.
+        if (
+            self._bounds is None
+            or self._bounds[0] is not static
+            or self._bounds[1] != day
+        ):
+            self._bounds = (
+                static,
+                day,
+                service_day_bounds(static, self._stop_key, day),
+            )
+        if (bounds := self._bounds[2]) is None:
+            return None
+        return (
+            bounds[0] if self.entity_description.key == "first_departure" else bounds[1]
+        )
+
+
+class TamLeaveSensor(TamDepartureSensor):
+    """Minutes left before leaving for the next tram within reach.
+
+    The tram within reach is the first one leaving after the walk to the
+    stop; the count is rounded down, and rewritten at each minute boundary,
+    as the minutes to the next departure.
+    """
+
+    _unrecorded_attributes = frozenset({"line_color", "line_text_color"})
+
+    def _departures(self, now: datetime) -> list[Departure]:
+        """Return the departures within reach, at the time to leave."""
+        return self._leave_departures(now)
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return the tram to catch and the walk to the stop."""
+        departure = self._departure(self._departures(dt_util.utcnow()))
+        walk = self._walk or timedelta()
+        return {
+            "line": self._line,
+            "line_color": f"#{self._route.color}" if self._route else None,
+            "line_text_color": f"#{self._route.text_color}" if self._route else None,
+            "walk_minutes": int(walk.total_seconds() // 60),
+            "leave_at": departure.time.isoformat() if departure else None,
+            "departure": ((departure.time + walk).isoformat() if departure else None),
+            "destination": departure.headsign if departure else None,
+        }
+
+
+def departure_attributes(departure: Departure, now: datetime) -> dict[str, Any]:
+    """Return a departure as listed in the ``departures`` attribute."""
+    return {
+        "time": departure.time.isoformat(),
+        "minutes": minutes_until(departure, now),
+        "destination": departure.headsign,
+        "source": departure.source.value,
+        "delay": _delay_minutes(departure),
+        **_vehicle_attributes(departure),
+    }
 
 
 def _vehicle_attributes(departure: Departure | None) -> dict[str, Any]:

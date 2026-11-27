@@ -14,7 +14,9 @@ from custom_components.tam_montpellier.departures import (
     DepartureSource,
     RealtimeSnapshot,
     compute_departures,
+    current_service_day,
     parse_trip_updates,
+    service_day_bounds,
 )
 from custom_components.tam_montpellier.gtfs_static import (
     Route,
@@ -465,3 +467,26 @@ def test_time_state_rounded(time: datetime, expected: datetime) -> None:
     assert rounded_time(departure, paris(8, 0)) == expected
     # The minutes keep the exact time.
     assert minutes_until(departure, time - timedelta(minutes=2)) == 2
+
+
+def test_service_day_bounds(static: StaticData) -> None:
+    """The last tram after midnight belongs to the service day before."""
+    assert service_day_bounds(static, KEY_B, date(2026, 9, 23)) == (
+        paris(8, 3),
+        paris(0, 33, day=24),
+    )
+    assert service_day_bounds(static, KEY_B, date(2026, 9, 24)) is None
+
+
+@pytest.mark.parametrize(
+    ("now", "day"),
+    [
+        (paris(8, 12), date(2026, 9, 23)),
+        (paris(0, 10, day=24), date(2026, 9, 23)),
+        (paris(0, 33, day=24), date(2026, 9, 23)),
+        (paris(1, 0, day=24), date(2026, 9, 24)),
+    ],
+)
+def test_current_service_day(static: StaticData, now: datetime, day: date) -> None:
+    """The service day runs until its last tram, past midnight."""
+    assert current_service_day(static, KEY_B, now) == day

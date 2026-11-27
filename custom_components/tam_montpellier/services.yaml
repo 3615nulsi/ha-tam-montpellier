@@ -1,0 +1,33 @@
+get_departures:
+  fields:
+    device_id:
+      selector:
+        device:
+          integration: tam_montpellier
+          entity:
+            - domain: binary_sensor
+    count:
+      default: 6
+      selector:
+        number:
+          min: 1
+          max: 20
+          mode: box
+    stop_id:
+      advanced: true
+      example: "B"
+      selector:
+        text:
+    route_id:
+      advanced: true
+      example: "1"
+      selector:
+        text:
+    direction_id:
+      advanced: true
+      example: 0
+      selector:
+        number:
+          min: 0
+          max: 1
+          mode: box

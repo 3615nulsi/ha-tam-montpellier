@@ -104,3 +104,20 @@ test("without translation keys, entities are found by their attributes", () => {
   assert.equal(found.minutes, "sensor.a");
   assert.equal(found.alert, "sensor.b");
 });
+
+test("the card speaks the language of Home Assistant", () => {
+  const state = minutesState({ stop_name: "Comédie", direction: "Mosson" });
+  const french = hassWith({ [state.entity_id]: state }, {});
+  const english = { ...french, language: "en", locale: { language: "en" } };
+  const fr = card.render(state, french.states, french, {}, undefined, undefined);
+  const en = card.render(state, english.states, english, {}, undefined, undefined);
+  assert.match(fr, /Direction Mosson/);
+  assert.match(fr, /Temps réel/);
+  assert.match(en, /Towards Mosson/);
+  assert.match(en, /Real time/);
+  assert.doesNotMatch(en, /Temps réel|Direction /);
+});
+
+test("both languages have the same texts", () => {
+  assert.deepEqual(Object.keys(card.texts({ language: "en" })).sort(), Object.keys(card.texts({ language: "fr" })).sort());
+});

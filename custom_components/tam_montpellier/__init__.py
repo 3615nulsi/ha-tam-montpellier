@@ -13,23 +13,41 @@ from homeassistant.components.http import StaticPathConfig
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import ConfigEntryNotReady
-from homeassistant.helpers import config_validation as cv, device_registry as dr
+from homeassistant.helpers import (
+    config_validation as cv,
+    device_registry as dr,
+    entity_registry as er,
+)
 from homeassistant.helpers.event import async_track_time_change
 from homeassistant.helpers.typing import ConfigType
 from homeassistant.loader import async_get_integration
 
-from .const import DOMAIN, GTFS_REFRESH_HOUR, GTFS_REFRESH_MINUTE, GTFS_REFRESH_SPREAD
-from .coordinator import GTFS_ERRORS, GtfsDownloadError, TamConfigEntry, TamCoordinator
+from .const import (
+    CONF_WALK_MINUTES,
+    DOMAIN,
+    GTFS_REFRESH_HOUR,
+    GTFS_REFRESH_MINUTE,
+    GTFS_REFRESH_SPREAD,
+    SUBENTRY_TYPE_STOP,
+)
+from .coordinator import (
+    GTFS_ERRORS,
+    GtfsDownloadError,
+    TamConfigEntry,
+    TamCoordinator,
+    stop_key_from_data,
+)
 from .entity import line_device_id
 from .fleet import fleet_lines
 from .issues import async_delete_issues, async_update_issues
+from .services import async_setup_services
 
 if TYPE_CHECKING:
     from homeassistant.components.lovelace.resources import ResourceStorageCollection
 
 _LOGGER = logging.getLogger(__name__)
 
-PLATFORMS: list[Platform] = [Platform.BINARY_SENSOR, Platform.SENSOR]
+PLATFORMS: list[Platform] = [Platform.BINARY_SENSOR, Platform.EVENT, Platform.SENSOR]
 
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
@@ -42,10 +60,11 @@ _EXTRA_MODULE_LOADED = f"{DOMAIN}_card_extra_module"
 
 
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
-    """Serve the departure board card."""
+    """Serve the departure board card and register the actions."""
     await hass.http.async_register_static_paths(
         [StaticPathConfig(CARD_URL, str(CARD_PATH), cache_headers=True)]
     )
+    async_setup_services(hass)
     return True
 
 
@@ -134,6 +153,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: TamConfigEntry) -> bool:
         ) from err
     await async_update_issues(hass, entry, coordinator)
     _remove_stale_line_devices(hass, entry, coordinator)
+    _remove_leave_entities(hass, entry)
     await coordinator.async_config_entry_first_refresh()
     entry.runtime_data = coordinator
 
@@ -189,6 +209,24 @@ def _remove_stale_line_devices(
             registry.async_update_device(
                 device.id, remove_config_entry_id=entry.entry_id
             )
+
+
+def _remove_leave_entities(hass: HomeAssistant, entry: TamConfigEntry) -> None:
+    """Remove the "time to leave" entities of the stops without a walk time."""
+    registry = er.async_get(hass)
+    for subentry in entry.subentries.values():
+        if subentry.subentry_type != SUBENTRY_TYPE_STOP:
+            continue
+        if CONF_WALK_MINUTES in subentry.data:
+            continue
+        stop_id, route_id, direction_id = stop_key_from_data(subentry.data)
+        for platform, key in (
+            (Platform.SENSOR, "minutes_to_leave"),
+            (Platform.BINARY_SENSOR, "time_to_leave"),
+        ):
+            unique_id = f"{stop_id}_{route_id}_{direction_id}_{key}"
+            if entity_id := registry.async_get_entity_id(platform, DOMAIN, unique_id):
+                registry.async_remove(entity_id)
 
 
 def gtfs_refresh_time(entry_id: str) -> tuple[int, int, int]:
