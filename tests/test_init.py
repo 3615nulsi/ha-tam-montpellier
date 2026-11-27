@@ -591,7 +591,7 @@ async def test_gtfs_cache_reused(
     await hass.async_block_till_done()
     assert _gtfs_downloads(mock_feeds) == 1
 
-    freezer.move_to(paris(3, 30, day=24))
+    freezer.move_to(paris(4, 31, day=24))
     async_fire_time_changed(hass, fire_all=True)
     await hass.async_block_till_done(wait_background_tasks=True)
     assert _gtfs_downloads(mock_feeds) == 2
@@ -620,7 +620,7 @@ async def test_invalid_gtfs_download_keeps_archive(
     # A web page served with a 200 status instead of the archive.
     mock_feeds.clear_requests()
     _serve_feeds(mock_feeds, gtfs=b"<html><body>Maintenance</body></html>")
-    freezer.move_to(paris(3, 30, day=24))
+    freezer.move_to(paris(4, 31, day=24))
     async_fire_time_changed(hass, fire_all=True)
     await hass.async_block_till_done(wait_background_tasks=True)
     assert _gtfs_downloads(mock_feeds) == 1
@@ -696,7 +696,7 @@ async def test_gtfs_parsed_once_per_download(
         await hass.async_block_till_done()
         assert parse.call_count == 1
 
-        freezer.move_to(paris(3, 30, day=24))
+        freezer.move_to(paris(4, 31, day=24))
         async_fire_time_changed(hass, fire_all=True)
         await hass.async_block_till_done(wait_background_tasks=True)
         assert _gtfs_downloads(mock_feeds) == 2
